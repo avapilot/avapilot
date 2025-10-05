@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AvaPilot</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="widget">
+        <div class="wallet-status">
+            <span id="statusDot" class="dot red"></span>
+            <button id="connectWalletBtn">Connect Wallet</button>
+        </div>
+        <h3>AvaPilot</h3>
+        <input type="text" id="commandInput" placeholder="e.g., swap 1 AVAX for USDC">
+        <button id="submitBtn" disabled>Go</button>
+        <p id="mainStatus">Please connect your wallet to begin.</p>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
