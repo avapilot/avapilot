@@ -1,0 +1,10 @@
+# Core framework for the Orchestrator
+langgraph
+
+# Google Cloud and AI libraries
+google-cloud-aiplatform
+google-generativeai
+
+# Web server and blockchain libraries
+Flask
+web3
