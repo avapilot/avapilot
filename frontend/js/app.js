@@ -1,6 +1,8 @@
 document.addEventListener('DOMContentLoaded', function() {
     // --- CONSTANTS ---
     const FUJI_CHAIN_ID = '0xa869'; // 43113 in hex
+    // --- UPDATE THIS LINE ---
+    const API_GATEWAY_URL = 'https://avapilot-orchestrator-82975436299.europe-west2.run.app/chat';
 
     // --- ELEMENT SELECTORS ---
     const connectWalletBtn = document.getElementById('connectWalletBtn');
@@ -24,12 +26,12 @@ document.addEventListener('DOMContentLoaded', function() {
     submitBtn.addEventListener('click', handleCommand);
 
     // --- FUNCTIONS ---
-    
+
     async function checkInitialConnection() {
         try {
             const accounts = await window.ethereum.request({ method: 'eth_accounts' });
             if (accounts.length > 0) {
-                await handleConnect(true); // Attempt a silent connection
+                await handleConnect(true);
             }
         } catch (error) {
             console.error("Silent connection check failed:", error);
@@ -54,7 +56,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 updateUI(false);
                 return;
             }
-            
+
             signer = currentSigner;
             updateUI(true, address);
 
@@ -93,21 +95,37 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        setStatus('Preparing transaction...');
-        
-        try {
-            const mockTransactionObject = {
-                to: "0x60aE616a2155Ee3d9A68541Ba4544862310933d4",
-                value: ethers.utils.parseEther("0.01")._hex,
-            };
-            
-            setStatus('Transaction ready. Please sign in your wallet.');
-            
-            const tx = await signer.sendTransaction(mockTransactionObject);
-            setStatus('Transaction sent. Waiting for confirmation...');
-            await tx.wait();
+        setStatus('Sending command to agent...');
 
-            setStatus('Transaction sent successfully!');
+        try {
+            // --- THIS IS THE NEW PART ---
+            // 1. Call the live backend API
+            const response = await fetch(API_GATEWAY_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    message: commandText,
+                    context: { url: window.location.href } 
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`API Error: ${response.statusText}`);
+            }
+
+            const apiResponse = await response.json();
+
+            // 2. Check the response and trigger the wallet
+            if (apiResponse.response_type === 'transaction') {
+                setStatus('Transaction ready. Please sign in your wallet.');
+                const tx = await signer.sendTransaction(apiResponse.payload.transaction);
+                setStatus('Transaction sent. Waiting for confirmation...');
+                await tx.wait();
+                setStatus('Transaction sent successfully!');
+            } else {
+                // Handle text responses later
+                setStatus(apiResponse.payload.message);
+            }
 
         } catch (error) {
             console.error('Error:', error);
