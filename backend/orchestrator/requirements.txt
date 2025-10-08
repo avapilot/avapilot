@@ -1,3 +1,9 @@
 Flask==3.0.0
 gunicorn
 Flask-Cors
+langgraph
+langchain-google-vertexai
+langchain-google-genai
+google-cloud-aiplatform
+web3
+requests
