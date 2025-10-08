@@ -1,143 +1,176 @@
 document.addEventListener('DOMContentLoaded', function() {
-    // --- CONSTANTS ---
-    const FUJI_CHAIN_ID = '0xa869'; // 43113 in hex
-    // --- UPDATE THIS LINE ---
-    const API_GATEWAY_URL = 'https://avapilot-orchestrator-82975436299.europe-west2.run.app/chat';
-
-    // --- ELEMENT SELECTORS ---
-    const connectWalletBtn = document.getElementById('connectWalletBtn');
-    const submitBtn = document.getElementById('submitBtn');
-    const commandInput = document.getElementById('commandInput');
-    const mainStatus = document.getElementById('mainStatus');
-    const statusDot = document.getElementById('statusDot');
-
-    // --- STATE ---
-    let signer = null;
-
-    // --- INITIALIZATION ---
-    if (window.ethereum) {
-        checkInitialConnection();
-        window.ethereum.on('accountsChanged', () => window.location.reload());
-        window.ethereum.on('chainChanged', () => window.location.reload());
-    }
-
-    // --- EVENT LISTENERS ---
-    connectWalletBtn.addEventListener('click', handleConnect);
-    submitBtn.addEventListener('click', handleCommand);
-
-    // --- FUNCTIONS ---
-
-    async function checkInitialConnection() {
-        try {
-            const accounts = await window.ethereum.request({ method: 'eth_accounts' });
-            if (accounts.length > 0) {
-                await handleConnect(true);
-            }
-        } catch (error) {
-            console.error("Silent connection check failed:", error);
-        }
-    }
-
-    async function handleConnect(isSilent = false) {
-        if (!window.ethereum) {
-            setStatus('Wallet not found. Please install a browser extension.');
+    // Wait for both DOM and ethers to be ready
+    window.addEventListener('load', function() {
+        // Check if ethers is available
+        if (typeof ethers === 'undefined') {
+            console.error('Ethers.js failed to load');
+            document.getElementById('statusContainer').textContent = 'Error: Wallet library failed to load';
             return;
         }
 
-        try {
-            const provider = new ethers.providers.Web3Provider(window.ethereum);
-            await provider.send("eth_requestAccounts", []);
-            const currentSigner = provider.getSigner();
-            const address = await currentSigner.getAddress();
-            const network = await provider.getNetwork();
+        // --- CONSTANTS & SELECTORS ---
+        const FUJI_CHAIN_ID = '0xa869';
+        const API_URL = 'https://avapilot-orchestrator-82975436299.europe-west2.run.app/chat';
 
-            if (network.chainId !== parseInt(FUJI_CHAIN_ID, 16)) {
-                if (!isSilent) setStatus('Wrong network. Please switch to Fuji Testnet.');
-                updateUI(false);
+        const connectWalletBtn = document.getElementById('connectWalletBtn');
+        const submitBtn = document.getElementById('submitBtn');
+        const commandInput = document.getElementById('commandInput');
+        const chatHistory = document.getElementById('chatHistory');
+        const chatForm = document.getElementById('chatForm');
+        const statusContainer = document.getElementById('statusContainer');
+        const statusDot = document.getElementById('statusDot');
+
+        let signer = null;
+
+        // --- INITIALIZATION ---
+        if (window.ethereum) {
+            checkInitialConnection();
+            window.ethereum.on('accountsChanged', () => window.location.reload());
+            window.ethereum.on('chainChanged', () => window.location.reload());
+        } else {
+            updateUI(false);
+            addMessageToHistory('agent', 'No wallet detected. Please install MetaMask or Core wallet.');
+        }
+
+        // --- EVENT LISTENERS ---
+        connectWalletBtn.addEventListener('click', handleConnect);
+        chatForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            handleCommand();
+        });
+
+        // --- CORE FUNCTIONS ---
+        async function handleCommand() {
+            if (!signer) {
+                setStatus('Please connect your wallet first.');
+                return;
+            }
+            const commandText = commandInput.value.trim();
+            if (!commandText) return;
+
+            addMessageToHistory('user', commandText);
+            commandInput.value = '';
+            setStatus('Agent is thinking...');
+            submitBtn.disabled = true;
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        message: commandText, 
+                        context: { url: window.location.href } 
+                    })
+                });
+
+                if (!response.ok) throw new Error(`API Error: ${response.statusText}`);
+
+                const apiResponse = await response.json();
+
+                if (apiResponse.response_type === 'transaction') {
+                    addMessageToHistory('agent', 'Transaction ready. Please check your wallet to sign.');
+                    setStatus('Waiting for wallet signature...');
+                    await initiateTransaction(apiResponse.payload.transaction);
+                    addMessageToHistory('agent', 'Transaction sent successfully!');
+                } else {
+                    addMessageToHistory('agent', apiResponse.payload.message);
+                }
+
+            } catch (error) {
+                console.error('Error:', error);
+                const errorMessage = (error.code === 4001) ? 'Action rejected by user.' : `Error: ${error.message}`;
+                addMessageToHistory('agent', `Sorry, an error occurred: ${errorMessage}`);
+            } finally {
+                setStatus('');
+                submitBtn.disabled = false;
+            }
+        }
+
+        // --- HELPER FUNCTIONS ---
+        function addMessageToHistory(sender, text) {
+            const messageDiv = document.createElement('div');
+            messageDiv.classList.add('message', `${sender}-message`);
+            messageDiv.textContent = text;
+            chatHistory.appendChild(messageDiv);
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+
+        function setStatus(message) {
+            statusContainer.textContent = message;
+        }
+
+        // --- WALLET FUNCTIONS ---
+        async function checkInitialConnection() {
+            try {
+                const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+                if (accounts.length > 0) {
+                    await handleConnect(true);
+                }
+            } catch (error) {
+                console.error("Silent connection check failed:", error);
+            }
+        }
+
+        async function handleConnect(isSilent = false) {
+            if (!window.ethereum) {
+                if (!isSilent) addMessageToHistory('agent', 'Wallet not found. Please install MetaMask or Core wallet.');
                 return;
             }
 
-            signer = currentSigner;
-            updateUI(true, address);
+            try {
+                const provider = new ethers.providers.Web3Provider(window.ethereum);
+                await provider.send("eth_requestAccounts", []);
+                const currentSigner = provider.getSigner();
+                const address = await currentSigner.getAddress();
+                const network = await provider.getNetwork();
 
-        } catch (error) {
-            console.error("Connection failed:", error);
-            if (!isSilent) setStatus('Connection rejected or failed.');
-            updateUI(false);
-        }
-    }
+                if (network.chainId !== parseInt(FUJI_CHAIN_ID, 16)) {
+                    if (!isSilent) {
+                        addMessageToHistory('agent', 'Wrong network. Please switch to Avalanche Fuji Testnet.');
+                        setStatus('Please switch to Fuji Testnet');
+                    }
+                    updateUI(false);
+                    return;
+                }
 
-    function updateUI(isConnected, address = '') {
-        if (isConnected) {
-            statusDot.className = 'dot green';
-            connectWalletBtn.textContent = `${address.substring(0, 6)}...${address.substring(38)}`;
-            connectWalletBtn.classList.add('connected');
-            submitBtn.disabled = false;
-            setStatus('Ready for your command.');
-        } else {
-            statusDot.className = 'dot red';
-            connectWalletBtn.textContent = 'Connect Wallet';
-            connectWalletBtn.classList.remove('connected');
-            submitBtn.disabled = true;
-            setStatus('Please connect your wallet to begin.');
-        }
-    }
+                signer = currentSigner;
+                updateUI(true, address);
+                if (!isSilent) {
+                    addMessageToHistory('agent', `Connected! Welcome to AvaPilot. How can I help you today?`);
+                }
 
-    async function handleCommand() {
-        if (!signer) {
-            setStatus('Please connect your wallet first.');
-            return;
-        }
-
-        const commandText = commandInput.value;
-        if (!commandText) {
-            setStatus('Please enter a command.');
-            return;
-        }
-
-        setStatus('Sending command to agent...');
-
-        try {
-            // --- THIS IS THE NEW PART ---
-            // 1. Call the live backend API
-            const response = await fetch(API_GATEWAY_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    message: commandText,
-                    context: { url: window.location.href } 
-                })
-            });
-
-            if (!response.ok) {
-                throw new Error(`API Error: ${response.statusText}`);
+            } catch (error) {
+                console.error("Connection failed:", error);
+                if (!isSilent) {
+                    addMessageToHistory('agent', 'Connection rejected or failed.');
+                    setStatus('Connection failed');
+                }
+                updateUI(false);
             }
+        }
 
-            const apiResponse = await response.json();
-
-            // 2. Check the response and trigger the wallet
-            if (apiResponse.response_type === 'transaction') {
-                setStatus('Transaction ready. Please sign in your wallet.');
-                const tx = await signer.sendTransaction(apiResponse.payload.transaction);
-                setStatus('Transaction sent. Waiting for confirmation...');
-                await tx.wait();
-                setStatus('Transaction sent successfully!');
+        function updateUI(isConnected, address = '') {
+            if (isConnected) {
+                statusDot.className = 'dot green';
+                connectWalletBtn.textContent = `${address.substring(0, 6)}...${address.substring(38)}`;
+                connectWalletBtn.classList.add('connected');
+                submitBtn.disabled = false;
+                setStatus('');
             } else {
-                // Handle text responses later
-                setStatus(apiResponse.payload.message);
-            }
-
-        } catch (error) {
-            console.error('Error:', error);
-            if (error.code === 4001) {
-                setStatus('Transaction rejected by user.');
-            } else {
-                setStatus(`Error: ${error.message}`);
+                statusDot.className = 'dot red';
+                connectWalletBtn.textContent = 'Connect Wallet';
+                connectWalletBtn.classList.remove('connected');
+                submitBtn.disabled = true;
+                setStatus('Please connect your wallet to begin.');
             }
         }
-    }
 
-    function setStatus(message) {
-        mainStatus.textContent = message;
-    }
+        async function initiateTransaction(txObject) {
+            setStatus('Sending transaction...');
+            const tx = await signer.sendTransaction(txObject);
+            setStatus('Transaction sent. Waiting for confirmation...');
+            await tx.wait();
+            setStatus('Transaction confirmed!');
+        }
+    });
 });
