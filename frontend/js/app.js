@@ -54,12 +54,18 @@ document.addEventListener('DOMContentLoaded', function() {
             submitBtn.disabled = true;
 
             try {
+                // Get the user's wallet address
+                const userAddress = await signer.getAddress();
+
                 const response = await fetch(API_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
                         message: commandText, 
-                        context: { url: window.location.href } 
+                        context: { 
+                            url: window.location.href,
+                            user_address: userAddress // Add the user's address here
+                        } 
                     })
                 });
 

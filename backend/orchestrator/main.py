@@ -2,6 +2,8 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import os
 import uuid
+import json
+import re
 from typing import TypedDict, Annotated, Sequence
 import operator
 from langchain_core.messages import BaseMessage, FunctionMessage, HumanMessage
@@ -21,7 +23,7 @@ CORS(app)
 
 # --- Initialize Model and Bind Tools ---
 # Create a list of the tools we want the agent to have
-tool_list = [tools.get_dapp_schema]
+tool_list = [tools.get_token_address, tools.get_contract_abi, tools.generate_transaction]
 
 # Initialize the LLM and bind the tools to it
 model = ChatVertexAI(
@@ -59,7 +61,6 @@ def call_model(state):
 # This defines the "thinking loop" of the agent.
 workflow = StateGraph(AgentState)
 workflow.add_node("agent", call_model)
-# REPLACE the old placeholder 'call_tools' node with the new ToolNode
 workflow.add_node("call_tools", tool_node)
 workflow.set_entry_point("agent")
 workflow.add_conditional_edges(
@@ -74,18 +75,25 @@ workflow.add_edge('call_tools', 'agent')
 graph = workflow.compile()
 
 # --- System Prompt ---
-SYSTEM_PROMPT = """You are AvaPilot, an expert AI assistant for interacting with decentralized applications (dApps) on the Avalanche blockchain. 
-Your primary goal is to help users understand and perform actions on dApps safely and easily.
+SYSTEM_PROMPT = """You are AvaPilot, an expert AI assistant for building transactions on the Avalanche blockchain.
+Your goal is to help a user execute a transaction by generating a valid, unsigned transaction object.
 
-You have access to a set of tools to gather information.
+You have access to these tools:
+- `get_contract_abi(contract_address: str)`: Gets the ABI for a smart contract.
+- `get_token_address(token_symbol: str)`: Gets the contract address for a token like WAVAX or USDC.
+- `generate_transaction(...)`: Generates the final transaction object.
 
-When a user asks a question (e.g., "what is this app?", "how do I swap?"), use your tools to get information and then explain it to the user in a clear, concise, and helpful way.
+When a user asks to perform an action like a swap:
+1. Your first step is ALWAYS to call `get_contract_abi` to understand the contract.
+2. Figure out the correct function to use (e.g., `swapExactAVAXForTokens`).
+3. For any token symbols (like "USDC"), use the `get_token_address` tool to find its address. The `path` for a swap is an array of addresses, e.g., [WAVAX_ADDRESS, USDC_ADDRESS].
+4. **Assume default values for safety and convenience if not provided:**
+   - For `amountOutMin` (slippage), always use `0`.
+   - For `deadline`, calculate the current Unix timestamp and add 1200 seconds (20 minutes).
+   - The `to` address for a swap is always the user's own wallet address.
+5. Once you have ALL the necessary arguments, call the `generate_transaction` tool to build the final transaction. Do not ask the user for information you can find or assume.
 
-When a user asks you to perform an action (e.g., "swap 1 AVAX for USDC"), your job is to:
-1.  First, understand the dApp by using the `get_dapp_schema` tool.
-2.  Then, once you have the schema, your next step will be to prepare the transaction. (We will implement this part later).
-
-Always think step-by-step.
+Always return the transaction object in the response so the frontend can prompt the user's wallet.
 """
 
 # --- API Endpoint ---
@@ -97,37 +105,89 @@ def chat():
     req_json = request.get_json()
     message = req_json.get("message")
 
+    # --- EXTRACT USER ADDRESS FROM CONTEXT ---
+    context = req_json.get("context", {})
+    user_address = context.get("user_address")
+
+    # Add the user's address to the prompt if it exists
+    full_message = message
+    if user_address:
+        full_message += f"\n\n(System context: The user's wallet address is {user_address})"
+    # --- END OF ADDED LOGIC ---
+
     if not message:
         return jsonify({"error": "message field is required"}), 400
 
-    # Create the input for the graph
+    # Create the input for the graph, using the new full_message
     inputs = {"messages": [
         HumanMessage(content=SYSTEM_PROMPT), 
-        HumanMessage(content=message)
+        HumanMessage(content=full_message)  # Use the message that includes the address
     ]}
 
     # Stream the agent's response
-    # In a real app, you would stream this back to the user.
-    # For now, we'll just collect the final response.
     final_response = None
     for output in graph.stream(inputs):
-        # The final response is the last one from the "agent" node
         for key, value in output.items():
             if key == "agent":
                 final_response = value
 
-    # Extract the text content from the final AI message
-    response_text = final_response['messages'][-1].content if final_response else "No response generated."
+    # Extract the final AI message
+    last_message = final_response['messages'][-1] if final_response else None
+    
+    if not last_message:
+        return jsonify({
+            "conversation_id": f"conv_{uuid.uuid4()}",
+            "response_type": "error",
+            "payload": {"message": "No response generated."}
+        })
 
-    # For now, we return a simple text response.
-    # In a later step, this will return a TransactionObject if needed.
-    return jsonify({
-        "conversation_id": f"conv_{uuid.uuid4()}",
-        "response_type": "text",
-        "payload": {
-            "message": response_text
-        }
-    })
+    response_text = last_message.content
+
+    # Check if generate_transaction was called by looking at tool calls in the conversation
+    has_transaction = False
+    transaction_obj = None
+    
+    # Look through all messages for tool calls and responses
+    for msg in final_response['messages']:
+        # Check if this message has tool calls
+        if hasattr(msg, 'tool_calls') and msg.tool_calls:
+            for tool_call in msg.tool_calls:
+                if tool_call.get('name') == 'generate_transaction':
+                    has_transaction = True
+        
+        # Check if this is a function message (tool response)
+        if isinstance(msg, FunctionMessage):
+            try:
+                # Try to parse the tool response as a transaction
+                content = msg.content
+                if isinstance(content, str) and '{' in content:
+                    # Try to extract JSON from the response
+                    json_match = re.search(r'\{[^}]+\}', content)
+                    if json_match:
+                        potential_tx = json.loads(json_match.group())
+                        if 'to' in potential_tx and 'data' in potential_tx:
+                            transaction_obj = potential_tx
+            except:
+                pass
+
+    if has_transaction and transaction_obj:
+        return jsonify({
+            "conversation_id": f"conv_{uuid.uuid4()}",
+            "response_type": "transaction",
+            "payload": {
+                "transaction": transaction_obj,
+                "message": "Transaction ready to sign"
+            }
+        })
+    else:
+        # Regular text response
+        return jsonify({
+            "conversation_id": f"conv_{uuid.uuid4()}",
+            "response_type": "text",
+            "payload": {
+                "message": response_text
+            }
+        })
 
 # This part is for local testing
 if __name__ == "__main__":
