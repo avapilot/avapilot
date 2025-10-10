@@ -70,7 +70,7 @@ def create_chat_agent():
     ]
     
     model = ChatVertexAI(
-        model="gemini-2.0-flash-exp",
+        model="gemini-2.0-flash",
         location="global",
         project="avapilot"
     ).bind_tools(tool_list)

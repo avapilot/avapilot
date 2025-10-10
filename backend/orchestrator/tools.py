@@ -1,3 +1,9 @@
+"""
+Clean separation:
+- @tool functions for LLM to call (info gathering only)
+- _impl functions for Python to call directly (including transaction generation)
+"""
+
 import re
 import time
 import traceback
@@ -6,35 +12,49 @@ import requests
 import json
 from web3 import Web3
 
-# We will use the public Snowtrace (Avalanche block explorer) API
+# Snowtrace API configuration
 SNOWTRACE_API_URL = "https://api.snowtrace.io/api"
-SNOWTRACE_API_KEY = "placeholder" 
+SNOWTRACE_API_KEY = "placeholder"
 
-# This is our simple, hardcoded knowledge base for token addresses on the Fuji Testnet
+# Hardcoded token addresses for Fuji Testnet
 FUJI_TOKEN_ADDRESSES = {
     "WAVAX": "0x1d308089a2d1ced3f1ce36b1fcaf815b07217be3",
     "USDC": "0x5425890298aed601595a70AB815c96711a31Bc65"
 }
 
-@tool
-def get_token_address(token_symbol: str) -> str:
+
+# ============================================
+# IMPLEMENTATION FUNCTIONS (No @tool decorator)
+# These can be called directly from Python code
+# ============================================
+
+def get_token_address_impl(token_symbol: str) -> str:
     """
-    Finds the contract address for a given token symbol on the Fuji Testnet.
-    Supports: WAVAX, USDC
+    Implementation that can be called from Python directly.
+    
+    Args:
+        token_symbol: Token symbol (WAVAX, USDC)
+    
+    Returns:
+        Contract address or error message
     """
-    print(f"---TOOL CALLED: get_token_address for symbol: {token_symbol}---")
     address = FUJI_TOKEN_ADDRESSES.get(token_symbol.upper(), "Error: Token not found.")
-    print(f"  → Returning: {address}")
+    print(f"  [IMPL] get_token_address({token_symbol}) → {address}")
     return address
 
-@tool
-def get_contract_abi(contract_address: str) -> str:
-    """
-    Fetches the ABI (Application Binary Interface) for a given smart contract.
-    Use this to understand what functions a contract has and to answer questions about it.
-    """
-    print(f"---TOOL CALLED: get_contract_abi for address: {contract_address}---")
 
+def get_contract_abi_impl(contract_address: str) -> str:
+    """
+    Implementation that can be called from Python directly.
+    
+    Args:
+        contract_address: Contract address
+        
+    Returns:
+        ABI JSON string or error message
+    """
+    print(f"  [IMPL] get_contract_abi({contract_address})")
+    
     params = {
         "module": "contract",
         "action": "getabi",
@@ -49,34 +69,48 @@ def get_contract_abi(contract_address: str) -> str:
 
         if data["status"] == "1":
             abi_length = len(data["result"])
-            print(f"  → ABI fetched successfully ({abi_length} characters)")
+            print(f"  [IMPL] ✓ ABI fetched ({abi_length} characters)")
             return data["result"]
         else:
             error = f"Error fetching ABI: {data['message']} - {data['result']}"
-            print(f"  → ERROR: {error}")
+            print(f"  [IMPL] ✗ {error}")
             return error
+            
     except requests.exceptions.RequestException as e:
         error = f"Error: Network request failed: {e}"
-        print(f"  → ERROR: {error}")
+        print(f"  [IMPL] ✗ {error}")
         return error
     except json.JSONDecodeError:
         error = "Error: Failed to parse response from block explorer."
-        print(f"  → ERROR: {error}")
+        print(f"  [IMPL] ✗ {error}")
         return error
 
-@tool
-def generate_transaction(
-    contract_address: str, 
-    abi: str, 
-    function_name: str, 
+
+def generate_transaction_impl(
+    contract_address: str,
+    abi: str,
+    function_name: str,
     function_args: list,
     value_in_avax: float = 0.0
-) -> str:
+) -> dict:
     """
-    Generates an unsigned transaction for ANY contract function.
+    Implementation that can be called from Python directly.
+    Returns dict (not JSON string) for easier use in Python code.
+    
+    Args:
+        contract_address: Target contract address
+        abi: Contract ABI as JSON string
+        function_name: Function to call
+        function_args: List of arguments
+        value_in_avax: Amount of AVAX to send
+    
+    Returns:
+        dict with either:
+        - {"success": True, "transaction": {...}}
+        - {"success": False, "error": "..."}
     """
     print(f"\n{'='*60}")
-    print(f"TOOL CALLED: generate_transaction")
+    print(f"[IMPL] generate_transaction")
     print(f"{'='*60}")
     print(f"  Function: {function_name}")
     print(f"  Contract: {contract_address}")
@@ -91,10 +125,8 @@ def generate_transaction(
         print(f"  ✓ ABI parsed ({len(contract_abi)} functions)")
         
         # CRITICAL: Clean the ABI by ensuring all input/output parameters have 'type' field
-        # This fixes corruption issues from the LLM
         cleaned_abi = []
         for item in contract_abi:
-            # Deep copy to avoid modifying original
             cleaned_item = dict(item)
             
             # Fix inputs if they exist
@@ -102,7 +134,6 @@ def generate_transaction(
                 cleaned_inputs = []
                 for inp in cleaned_item['inputs']:
                     cleaned_inp = dict(inp)
-                    # If 'type' is missing but 'internalType' exists, use that
                     if 'type' not in cleaned_inp and 'internalType' in cleaned_inp:
                         cleaned_inp['type'] = cleaned_inp['internalType']
                         print(f"    ⚠️  Fixed missing type in input: {cleaned_inp.get('name', 'unnamed')}")
@@ -162,9 +193,7 @@ def generate_transaction(
                     
             elif param_type == 'address':
                 if isinstance(arg, str):
-                    # Normalize to lowercase first to handle invalid checksums
                     normalized = arg.lower()
-                    # Validate length
                     addr_without_prefix = normalized[2:] if normalized.startswith('0x') else normalized
                     if len(addr_without_prefix) != 40:
                         raise ValueError(f"Invalid address length: {len(addr_without_prefix)} (expected 40)")
@@ -234,7 +263,10 @@ def generate_transaction(
         print(f"    Data: {encoded_data[:66]}... ({len(encoded_data)} chars)")
         print(f"{'='*60}\n")
         
-        return json.dumps(tx_object)
+        return {
+            "success": True,
+            "transaction": tx_object
+        }
         
     except Exception as e:
         error_msg = f"Failed to generate transaction: {str(e)}"
@@ -243,4 +275,50 @@ def generate_transaction(
         print(f"\n  Full traceback:")
         traceback.print_exc()
         print(f"{'='*60}\n")
-        return json.dumps({"error": error_msg})
+        
+        return {
+            "success": False,
+            "error": error_msg
+        }
+
+
+# ============================================
+# TOOL WRAPPERS (For LLM to call)
+# These are the ONLY tools the LLM sees for planning
+# ============================================
+
+@tool
+def get_token_address(token_symbol: str) -> str:
+    """
+    Finds the contract address for a given token symbol on the Fuji Testnet.
+    Supports: WAVAX, USDC
+    
+    Args:
+        token_symbol: Token symbol (e.g., "WAVAX", "USDC")
+    
+    Returns:
+        Contract address string or error message
+    """
+    print(f"[TOOL] get_token_address called: {token_symbol}")
+    return get_token_address_impl(token_symbol)
+
+
+@tool
+def get_contract_abi(contract_address: str) -> str:
+    """
+    Fetches the ABI (Application Binary Interface) for a given smart contract.
+    Use this to understand what functions a contract has.
+    
+    Args:
+        contract_address: The contract address to fetch ABI for
+        
+    Returns:
+        ABI JSON string or error message
+    """
+    print(f"[TOOL] get_contract_abi called: {contract_address}")
+    return get_contract_abi_impl(contract_address)
+
+
+# NOTE: generate_transaction is NOT exposed as a @tool
+# The LLM only plans, Python executes via generate_transaction_impl()
+# This ensures the transaction object is never touched by the LLM
