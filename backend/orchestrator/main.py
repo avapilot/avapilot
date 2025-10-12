@@ -1,5 +1,5 @@
 """
-Main Flask Application - Single unified endpoint
+Main Flask Application - Single unified endpoint with memory
 """
 
 from flask import Flask, jsonify, request
@@ -14,31 +14,41 @@ CORS(app)
 @app.route("/chat", methods=['POST'])
 def chat():
     """
-    Unified endpoint - chat agent orchestrates everything
+    Unified endpoint with memory support
     """
     req_json = request.get_json()
     message = req_json.get("message")
     context = req_json.get("context", {})
     user_address = context.get("user_address")
+    
+    # KEY: Get or create conversation_id
+    conversation_id = req_json.get("conversation_id")
+    if not conversation_id:
+        conversation_id = f"conv_{uuid.uuid4()}"
 
     if not message:
         return jsonify({"error": "message field is required"}), 400
 
     print(f"\n{'#'*60}")
     print(f"# REQUEST: {message}")
+    print(f"# Conversation: {conversation_id}")
     print(f"{'#'*60}")
     
-    # Run chat agent - it handles everything
-    result = run_chat_agent(message, user_address)
+    # Run chat agent with conversation_id
+    result = run_chat_agent(
+        message=message,
+        user_address=user_address,
+        conversation_id=conversation_id
+    )
     
     print(f"{'#'*60}")
     print(f"# COMPLETE - Type: {result['type']}")
     print(f"{'#'*60}\n")
     
-    # Build response
+    # Build response with conversation_id
     if result["type"] == "transaction":
         return jsonify({
-            "conversation_id": f"conv_{uuid.uuid4()}",
+            "conversation_id": conversation_id,
             "response_type": "transaction",
             "payload": {
                 "transaction": result["transaction"],
@@ -47,13 +57,13 @@ def chat():
         })
     elif result["type"] == "error":
         return jsonify({
-            "conversation_id": f"conv_{uuid.uuid4()}",
+            "conversation_id": conversation_id,
             "response_type": "error",
             "payload": {"message": result["message"]}
         }), 400
     else:  # text
         return jsonify({
-            "conversation_id": f"conv_{uuid.uuid4()}",
+            "conversation_id": conversation_id,
             "response_type": "text",
             "payload": {"message": result["message"]}
         })

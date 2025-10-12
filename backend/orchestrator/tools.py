@@ -1,7 +1,7 @@
 """
 Clean separation:
-- @tool functions for LLM to call (info gathering only)
-- _impl functions for Python to call directly (including transaction generation)
+- @tool functions for LLM to call
+- _impl functions for Python to call directly
 """
 
 import re
@@ -22,37 +22,23 @@ FUJI_TOKEN_ADDRESSES = {
     "USDC": "0x5425890298aed601595a70AB815c96711a31Bc65"
 }
 
+# RPC endpoint
+FUJI_RPC_URL = "https://api.avax-test.network/ext/bc/C/rpc"
+
 
 # ============================================
 # IMPLEMENTATION FUNCTIONS (No @tool decorator)
-# These can be called directly from Python code
 # ============================================
 
 def get_token_address_impl(token_symbol: str) -> str:
-    """
-    Implementation that can be called from Python directly.
-    
-    Args:
-        token_symbol: Token symbol (WAVAX, USDC)
-    
-    Returns:
-        Contract address or error message
-    """
+    """Implementation that can be called from Python directly"""
     address = FUJI_TOKEN_ADDRESSES.get(token_symbol.upper(), "Error: Token not found.")
     print(f"  [IMPL] get_token_address({token_symbol}) → {address}")
     return address
 
 
 def get_contract_abi_impl(contract_address: str) -> str:
-    """
-    Implementation that can be called from Python directly.
-    
-    Args:
-        contract_address: Contract address
-        
-    Returns:
-        ABI JSON string or error message
-    """
+    """Implementation that can be called from Python directly"""
     print(f"  [IMPL] get_contract_abi({contract_address})")
     
     params = {
@@ -86,6 +72,124 @@ def get_contract_abi_impl(contract_address: str) -> str:
         return error
 
 
+def read_contract_function_impl(
+    contract_address: str,
+    function_name: str,
+    function_args: list
+) -> dict:
+    """
+    Implementation for reading contract state (view/pure functions only).
+    Simple and direct - no agent needed!
+    """
+    print(f"\n{'='*60}")
+    print(f"[READ] {function_name} on {contract_address}")
+    print(f"{'='*60}")
+    print(f"  Args: {function_args}")
+    
+    try:
+        # Connect to RPC
+        w3 = Web3(Web3.HTTPProvider(FUJI_RPC_URL))
+        if not w3.is_connected():
+            return {"success": False, "error": "RPC connection failed"}
+        
+        print(f"  ✓ Connected to Avalanche Fuji")
+        
+        # Get ABI
+        abi = get_contract_abi_impl(contract_address)
+        if abi.startswith("Error"):
+            return {"success": False, "error": abi}
+        
+        contract_abi = json.loads(abi)
+        
+        # Clean ABI (same logic as generate_transaction_impl)
+        cleaned_abi = []
+        for item in contract_abi:
+            cleaned_item = dict(item)
+            
+            if 'inputs' in cleaned_item:
+                cleaned_inputs = []
+                for inp in cleaned_item['inputs']:
+                    cleaned_inp = dict(inp)
+                    if 'type' not in cleaned_inp and 'internalType' in cleaned_inp:
+                        cleaned_inp['type'] = cleaned_inp['internalType']
+                    cleaned_inputs.append(cleaned_inp)
+                cleaned_item['inputs'] = cleaned_inputs
+            
+            if 'outputs' in cleaned_item:
+                cleaned_outputs = []
+                for out in cleaned_item['outputs']:
+                    cleaned_out = dict(out)
+                    if 'type' not in cleaned_out and 'internalType' in cleaned_out:
+                        cleaned_out['type'] = cleaned_out['internalType']
+                    cleaned_outputs.append(cleaned_out)
+                cleaned_item['outputs'] = cleaned_outputs
+            
+            cleaned_abi.append(cleaned_item)
+        
+        print(f"  ✓ ABI parsed and cleaned")
+        
+        # Find function
+        function_abi = None
+        for item in cleaned_abi:
+            if item.get('name') == function_name:
+                state_mutability = item.get('stateMutability', '')
+                if state_mutability not in ['view', 'pure']:
+                    return {
+                        "success": False,
+                        "error": f"'{function_name}' is not a read-only function (mutability: {state_mutability})"
+                    }
+                function_abi = item
+                break
+        
+        if not function_abi:
+            return {"success": False, "error": f"Function '{function_name}' not found in ABI"}
+        
+        print(f"  ✓ Function found (read-only)")
+        
+        # Convert arguments to proper types
+        converted_args = []
+        for arg, param in zip(function_args, function_abi.get('inputs', [])):
+            param_type = param['type']
+            
+            if param_type.startswith('uint') or param_type.startswith('int'):
+                converted = int(float(arg)) if isinstance(arg, (str, float)) else arg
+            elif param_type == 'address':
+                converted = Web3.to_checksum_address(arg.lower()) if isinstance(arg, str) else arg
+            elif param_type == 'address[]':
+                converted = [Web3.to_checksum_address(a.lower()) for a in arg] if isinstance(arg, list) else arg
+            elif param_type == 'bool':
+                converted = bool(arg) if not isinstance(arg, str) else arg.lower() in ['true', '1', 'yes']
+            else:
+                converted = arg
+            
+            converted_args.append(converted)
+        
+        print(f"  ✓ Arguments converted: {converted_args}")
+        
+        # Create contract and call
+        contract_address = Web3.to_checksum_address(contract_address.lower())
+        contract = w3.eth.contract(address=contract_address, abi=cleaned_abi)
+        
+        print(f"  → Calling {function_name}({converted_args})...")
+        result = contract.functions[function_name](*converted_args).call()
+        
+        print(f"  ✓ Result: {result} (type: {type(result).__name__})")
+        print(f"{'='*60}\n")
+        
+        return {
+            "success": True,
+            "result": str(result),  # Convert to string for JSON serialization
+            "result_type": type(result).__name__
+        }
+        
+    except Exception as e:
+        error_msg = f"Read failed: {str(e)}"
+        print(f"  ✗ {error_msg}")
+        traceback.print_exc()
+        print(f"{'='*60}\n")
+        return {"success": False, "error": error_msg}
+
+
 def generate_transaction_impl(
     contract_address: str,
     abi: str,
@@ -93,22 +197,7 @@ def generate_transaction_impl(
     function_args: list,
     value_in_avax: float = 0.0
 ) -> dict:
-    """
-    Implementation that can be called from Python directly.
-    Returns dict (not JSON string) for easier use in Python code.
-    
-    Args:
-        contract_address: Target contract address
-        abi: Contract ABI as JSON string
-        function_name: Function to call
-        function_args: List of arguments
-        value_in_avax: Amount of AVAX to send
-    
-    Returns:
-        dict with either:
-        - {"success": True, "transaction": {...}}
-        - {"success": False, "error": "..."}
-    """
+    """Implementation for generating transactions"""
     print(f"\n{'='*60}")
     print(f"[IMPL] generate_transaction")
     print(f"{'='*60}")
@@ -124,30 +213,26 @@ def generate_transaction_impl(
         contract_abi = json.loads(abi)
         print(f"  ✓ ABI parsed ({len(contract_abi)} functions)")
         
-        # CRITICAL: Clean the ABI by ensuring all input/output parameters have 'type' field
+        # Clean ABI
         cleaned_abi = []
         for item in contract_abi:
             cleaned_item = dict(item)
             
-            # Fix inputs if they exist
             if 'inputs' in cleaned_item:
                 cleaned_inputs = []
                 for inp in cleaned_item['inputs']:
                     cleaned_inp = dict(inp)
                     if 'type' not in cleaned_inp and 'internalType' in cleaned_inp:
                         cleaned_inp['type'] = cleaned_inp['internalType']
-                        print(f"    ⚠️  Fixed missing type in input: {cleaned_inp.get('name', 'unnamed')}")
                     cleaned_inputs.append(cleaned_inp)
                 cleaned_item['inputs'] = cleaned_inputs
             
-            # Fix outputs if they exist
             if 'outputs' in cleaned_item:
                 cleaned_outputs = []
                 for out in cleaned_item['outputs']:
                     cleaned_out = dict(out)
                     if 'type' not in cleaned_out and 'internalType' in cleaned_out:
                         cleaned_out['type'] = cleaned_out['internalType']
-                        print(f"    ⚠️  Fixed missing type in output: {cleaned_out.get('name', 'unnamed')}")
                     cleaned_outputs.append(cleaned_out)
                 cleaned_item['outputs'] = cleaned_outputs
             
@@ -156,7 +241,7 @@ def generate_transaction_impl(
         contract_abi = cleaned_abi
         print(f"  ✓ ABI validated and cleaned")
         
-        # Find the function
+        # Find function
         function_abi = None
         for item in contract_abi:
             if item.get('name') == function_name and item.get('type') == 'function':
@@ -167,99 +252,43 @@ def generate_transaction_impl(
             raise ValueError(f"Function '{function_name}' not found in ABI")
         
         print(f"  ✓ Function found in ABI")
-        expected_params = [f"{p['name']}:{p['type']}" for p in function_abi['inputs']]
-        print(f"    Expected params: {expected_params}")
         
-        # Convert arguments to proper types
-        print(f"\n  → Converting arguments to match ABI types...")
+        # Convert arguments
         converted_args = []
-        
         for i, (arg, param) in enumerate(zip(function_args, function_abi['inputs'])):
             param_type = param['type']
-            param_name = param['name']
-            
-            print(f"    [{i}] {param_name} ({param_type})")
-            print(f"        Input: {arg} (type: {type(arg).__name__})")
             
             if param_type.startswith('uint') or param_type.startswith('int'):
-                if isinstance(arg, str):
-                    converted = int(float(arg))
-                elif isinstance(arg, float):
-                    converted = int(arg)
-                else:
-                    converted = arg
-                converted_args.append(converted)
-                print(f"        Output: {converted} (type: int)")
-                    
+                converted = int(float(arg)) if isinstance(arg, (str, float)) else arg
             elif param_type == 'address':
-                if isinstance(arg, str):
-                    normalized = arg.lower()
-                    addr_without_prefix = normalized[2:] if normalized.startswith('0x') else normalized
-                    if len(addr_without_prefix) != 40:
-                        raise ValueError(f"Invalid address length: {len(addr_without_prefix)} (expected 40)")
-                    converted = Web3.to_checksum_address(normalized)
-                    converted_args.append(converted)
-                    print(f"        Output: {converted} (checksummed)")
-                else:
-                    converted_args.append(arg)
-                    print(f"        Output: {arg} (unchanged)")
-                    
+                converted = Web3.to_checksum_address(arg.lower()) if isinstance(arg, str) else arg
             elif param_type == 'address[]':
-                if isinstance(arg, list):
-                    converted = [Web3.to_checksum_address(addr.lower()) if isinstance(addr, str) else addr for addr in arg]
-                    converted_args.append(converted)
-                    print(f"        Output: {converted} (checksummed array)")
-                else:
-                    converted_args.append(arg)
-                    print(f"        Output: {arg} (unchanged)")
-                    
+                converted = [Web3.to_checksum_address(addr.lower()) if isinstance(addr, str) else addr for addr in arg] if isinstance(arg, list) else arg
             elif param_type == 'bool':
-                if isinstance(arg, str):
-                    converted = arg.lower() in ['true', '1', 'yes']
-                else:
-                    converted = bool(arg)
-                converted_args.append(converted)
-                print(f"        Output: {converted} (type: bool)")
-                    
+                converted = bool(arg) if not isinstance(arg, str) else arg.lower() in ['true', '1', 'yes']
             else:
-                converted_args.append(arg)
-                print(f"        Output: {arg} (unchanged)")
+                converted = arg
+            
+            converted_args.append(converted)
         
-        print(f"\n  ✓ All arguments converted successfully")
-        print(f"    Final args: {converted_args}")
+        print(f"  ✓ All arguments converted")
         
-        # Checksum the contract address
+        # Create contract and encode
         contract_address = Web3.to_checksum_address(contract_address.lower())
-        print(f"  ✓ Contract address checksummed: {contract_address}")
-        
-        # Create contract instance
         contract = w3.eth.contract(address=contract_address, abi=contract_abi)
-        print(f"  ✓ Contract instance created")
         
-        # Build and encode
-        print(f"  → Building function call...")
         contract_function = contract.functions[function_name](*converted_args)
-        print(f"  ✓ Function call built")
-        
-        print(f"  → Encoding transaction data...")
         encoded_data = contract_function._encode_transaction_data()
-        print(f"  ✓ Encoded successfully")
-        print(f"    Data: {encoded_data[:66]}...")
-
-        # Convert AVAX to WEI
+        
         value_in_wei = w3.to_wei(value_in_avax, 'ether')
-        print(f"  ✓ Value: {value_in_avax} AVAX = {value_in_wei} wei")
-
-        # Construct transaction object
+        
         tx_object = {
             "to": contract_address,
             "value": hex(value_in_wei),
             "data": encoded_data
         }
         
-        print(f"\n  ✓✓✓ SUCCESS: Transaction generated ✓✓✓")
-        print(f"    To: {tx_object['to']}")
-        print(f"    Value: {tx_object['value']} ({value_in_avax} AVAX)")
+        print(f"  ✓✓✓ SUCCESS: Transaction generated")
         print(f"    Data: {encoded_data[:66]}... ({len(encoded_data)} chars)")
         print(f"{'='*60}\n")
         
@@ -270,9 +299,7 @@ def generate_transaction_impl(
         
     except Exception as e:
         error_msg = f"Failed to generate transaction: {str(e)}"
-        print(f"\n  ✗✗✗ ERROR ✗✗✗")
-        print(f"  {error_msg}")
-        print(f"\n  Full traceback:")
+        print(f"  ✗✗✗ ERROR: {error_msg}")
         traceback.print_exc()
         print(f"{'='*60}\n")
         
@@ -284,7 +311,6 @@ def generate_transaction_impl(
 
 # ============================================
 # TOOL WRAPPERS (For LLM to call)
-# These are the ONLY tools the LLM sees for planning
 # ============================================
 
 @tool
@@ -319,6 +345,33 @@ def get_contract_abi(contract_address: str) -> str:
     return get_contract_abi_impl(contract_address)
 
 
-# NOTE: generate_transaction is NOT exposed as a @tool
-# The LLM only plans, Python executes via generate_transaction_impl()
-# This ensures the transaction object is never touched by the LLM
+@tool
+def read_contract_function(
+    contract_address: str,
+    function_name: str,
+    function_args: list
+) -> str:
+    """
+    Reads data from a smart contract (view/pure functions only).
+    
+    Common use cases:
+    - Check token balance: read_contract_function("0xUSDC...", "balanceOf", ["0xUserAddr..."])
+    - Check allowance: read_contract_function("0xUSDC...", "allowance", ["0xOwner...", "0xSpender..."])
+    - Get token decimals: read_contract_function("0xUSDC...", "decimals", [])
+    - Get token symbol: read_contract_function("0xUSDC...", "symbol", [])
+    
+    Args:
+        contract_address: Contract to read from
+        function_name: Function to call (must be view/pure)
+        function_args: Arguments as list (use [] for functions with no arguments)
+        
+    Returns:
+        JSON string with {"success": true, "result": "..."} or {"success": false, "error": "..."}
+    """
+    print(f"[TOOL] read_contract_function called: {function_name} on {contract_address}")
+    result = read_contract_function_impl(contract_address, function_name, function_args)
+    return json.dumps(result)
+
+
+# NOTE: generate_transaction is NOT exposed as a @tool here
+# It's wrapped in transaction_tool.py as generate_blockchain_transaction

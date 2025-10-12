@@ -1,72 +1,83 @@
 """
-Chat Agent - Master orchestrator that can answer questions AND generate transactions
+Chat Agent - Single orchestrator with all tools and memory
 """
 
 import time
 import json
 from typing import TypedDict, Annotated, Sequence
 import operator
-from langchain_core.messages import BaseMessage, ToolMessage, HumanMessage  # ← Changed from FunctionMessage
-from langgraph.graph import StateGraph, END
+from langchain_core.messages import BaseMessage, ToolMessage, HumanMessage, SystemMessage
+from langgraph.graph import StateGraph, END, MessagesState
 from langgraph.prebuilt import ToolNode
+from langgraph.checkpoint.memory import MemorySaver
 from langchain_google_vertexai import ChatVertexAI
-import tools
+from tools import get_token_address, get_contract_abi, read_contract_function
 from transaction_tool import generate_blockchain_transaction
 
 
-# Agent State
-class AgentState(TypedDict):
-    messages: Annotated[Sequence[BaseMessage], operator.add]
-    iteration_count: int
+# Global memory checkpointer
+MEMORY_SAVER = MemorySaver()
 
 
-# Master orchestrator prompt
-CHAT_PROMPT = """You are AvaPilot, an AI assistant for Avalanche blockchain.
+class AgentState(MessagesState):
+    """Extend MessagesState to add iteration tracking"""
+    iteration_count: int = 0
 
-**Your Role:** Help users through conversation. You can both answer questions AND generate transactions.
+
+CHAT_PROMPT = """You are AvaPilot, a helpful blockchain assistant for Avalanche.
 
 **Available Tools:**
-- get_contract_abi(contract_address): Fetch contract ABI
-- get_token_address(symbol): Look up token addresses (WAVAX, USDC)
-- generate_blockchain_transaction(action_description, contract_address, user_address): Generate a transaction
 
-**How to Handle Requests:**
+1. **generate_blockchain_transaction** - For ACTIONS that change blockchain state
+   - Swapping tokens
+   - Transferring assets
+   - Approving spending
+   - Staking/unstaking
+   Use when user wants to DO something
 
-**For QUESTIONS (what, how, why, explain):**
-- Use get_contract_abi if needed
-- Provide clear, helpful answers
-- Do NOT call generate_blockchain_transaction
+2. **read_contract_function** - For QUERIES about blockchain state
+   - Check balances: read_contract_function(token_address, "balanceOf", [user_address])
+   - Check allowances: read_contract_function(token_address, "allowance", [owner, spender])
+   - Get token info: read_contract_function(token_address, "decimals", [])
+   - Get token symbol: read_contract_function(token_address, "symbol", [])
+   Use when user wants to KNOW something
 
-**For ACTIONS (swap, transfer, send, approve, etc.):**
-1. **Check if you have all required information:**
-   - Amount to swap/transfer
-   - Which tokens/contracts
-   - Which contract address to use
-   
-2. **If ANY information is missing, ASK the user for it**
+3. **get_token_address** - Get contract address for tokens (WAVAX, USDC)
 
-3. **If you have ALL information, IMMEDIATELY call generate_blockchain_transaction with:**
-   - action_description: Full description (e.g., "swap 0.01 AVAX for USDC")
-   - contract_address: The target contract
-   - user_address: From context
-   
-   **Do NOT ask for confirmation - just generate the transaction!**
+4. **get_contract_abi** - Get ABI to see available functions
 
-4. Present the result to the user
+**Decision Guide:**
+- "Swap X for Y" → generate_blockchain_transaction
+- "What's my balance?" → read_contract_function
+- "Transfer X to Y" → generate_blockchain_transaction
+- "Check allowance" → read_contract_function
+- "How does X work?" → answer directly with your knowledge
 
-**CRITICAL:** If the user provides ALL details (amount, tokens, contract), you MUST call generate_blockchain_transaction immediately. Do NOT ask "is that correct?" - just do it!
+**For Balance Queries (IMPORTANT):**
+1. Call read_contract_function to get raw balance
+2. Call read_contract_function to get decimals
+3. Calculate: display_balance = raw_balance / (10 ** decimals)
+4. Format nicely for user
 
-**Current timestamp:** {timestamp}
+**For Transaction Requests:**
+- If user provides ALL details (amount, tokens, contract) → immediately call generate_blockchain_transaction
+- If ANY detail is missing → ask the user
+- Do NOT ask for confirmation if user already provided everything
+
+Be helpful, clear, and accurate!
+
+Current timestamp: {timestamp}
 """
 
 
 def create_chat_agent():
-    """Creates the chat agent graph"""
+    """Creates the chat agent with memory"""
     
     tool_list = [
-        tools.get_token_address,
-        tools.get_contract_abi,
-        generate_blockchain_transaction
+        generate_blockchain_transaction,
+        read_contract_function,
+        get_token_address,
+        get_contract_abi
     ]
     
     model = ChatVertexAI(
@@ -88,7 +99,8 @@ def create_chat_agent():
         if iteration_count > 10:
             return END
         
-        last_message = state['messages'][-1]
+        messages = state['messages']
+        last_message = messages[-1]
         if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
             return "call_tools"
         return END
@@ -96,7 +108,17 @@ def create_chat_agent():
     def call_model(state):
         current_count = state.get('iteration_count', 0)
         print(f"[CHAT AGENT] Iteration {current_count + 1}")
-        response = model.invoke(state['messages'])
+        
+        # Add system prompt as first message if not present
+        messages = state['messages']
+        current_timestamp = int(time.time())
+        system_content = CHAT_PROMPT.format(timestamp=current_timestamp)
+        
+        # Check if first message is system prompt
+        if not messages or not (hasattr(messages[0], 'type') and messages[0].type == 'system'):
+            messages = [SystemMessage(content=system_content)] + messages
+        
+        response = model.invoke(messages)
         return {
             "messages": [response],
             "iteration_count": current_count + 1
@@ -113,12 +135,22 @@ def create_chat_agent():
     )
     workflow.add_edge('call_tools', 'agent')
     
-    return workflow.compile()
+    # KEY: Compile with memory checkpointer
+    return workflow.compile(checkpointer=MEMORY_SAVER)
 
 
-def run_chat_agent(message: str, user_address: str = None) -> dict:
+def run_chat_agent(
+    message: str, 
+    user_address: str = None,
+    conversation_id: str = None
+) -> dict:
     """
-    Runs the chat agent (master orchestrator)
+    Runs the chat agent with memory
+    
+    Args:
+        message: User's message
+        user_address: User's wallet address
+        conversation_id: Unique conversation ID (thread_id)
     
     Returns:
         {
@@ -129,29 +161,30 @@ def run_chat_agent(message: str, user_address: str = None) -> dict:
     """
     print("\n" + "#"*60)
     print("CHAT AGENT STARTED")
+    print(f"Conversation ID: {conversation_id}")
     print("#"*60)
     
-    current_timestamp = int(time.time())
-    system_prompt = CHAT_PROMPT.format(timestamp=current_timestamp)
-    
+    # Build full message with context
     full_message = message
     if user_address:
         full_message += f"\n\n**Context:** User's wallet is {user_address}"
     
+    # Create input with just the new message
+    # LangGraph will automatically load previous messages from checkpointer
     inputs = {
-        "messages": [
-            HumanMessage(content=system_prompt),
-            HumanMessage(content=full_message)
-        ],
+        "messages": [HumanMessage(content=full_message)],
         "iteration_count": 0
     }
+    
+    # KEY: Pass conversation_id as thread_id in config
+    config = {"configurable": {"thread_id": conversation_id}}
     
     graph = create_chat_agent()
     
     # Accumulate ALL messages
     all_messages = []
     
-    for output in graph.stream(inputs):
+    for output in graph.stream(inputs, config=config):
         for key, value in output.items():
             if 'messages' in value:
                 all_messages.extend(value['messages'])
@@ -166,35 +199,20 @@ def run_chat_agent(message: str, user_address: str = None) -> dict:
             "message": "No response generated"
         }
     
-    # Check if transaction was generated via the tool
-    print("[CHAT AGENT] Searching for transaction in messages...")
-    print(f"[CHAT AGENT] Total messages: {len(all_messages)}")
-    
+    # Check if transaction was generated
     for i, msg in enumerate(all_messages):
         if isinstance(msg, ToolMessage) and msg.name == 'generate_blockchain_transaction':
             try:
-                print(f"[CHAT AGENT] Found generate_blockchain_transaction in message {i}")
-                print(f"[CHAT AGENT] Content preview: {msg.content[:100]}...")
-                
                 tx_result = json.loads(msg.content)
                 
-                print(f"[CHAT AGENT] Parsed JSON successfully")
-                print(f"[CHAT AGENT] Keys: {list(tx_result.keys())}")
-                
-                # Check if it's an error
                 if 'error' in tx_result:
-                    print(f"[CHAT AGENT] Transaction tool returned error")
                     ai_message = all_messages[-1].content if all_messages[-1].content else ""
                     return {
                         "type": "text",
                         "message": f"{ai_message}\n\nError: {tx_result['error']}"
                     }
                 
-                # Check if it's a valid transaction (has to, data, value)
                 if 'to' in tx_result and 'data' in tx_result and 'value' in tx_result:
-                    print(f"[CHAT AGENT] ✓✓✓ Valid transaction found!")
-                    
-                    # Get AI's explanation message
                     ai_message = all_messages[-1].content if all_messages[-1].content else ""
                     
                     return {
@@ -202,18 +220,14 @@ def run_chat_agent(message: str, user_address: str = None) -> dict:
                         "transaction": tx_result,
                         "message": ai_message or "Transaction ready to sign"
                     }
-                else:
-                    print(f"[CHAT AGENT] Transaction missing required fields")
                     
-            except json.JSONDecodeError as e:
-                print(f"[CHAT AGENT] JSON parse error: {e}")
+            except json.JSONDecodeError:
                 continue
             except Exception as e:
-                print(f"[CHAT AGENT] Error: {e}")
+                print(f"[ERROR] {e}")
                 continue
     
     # No transaction - just text response
-    print("[CHAT AGENT] No transaction found, returning text response")
     last_message = all_messages[-1]
     response_text = last_message.content if last_message.content else "I couldn't generate a response."
     

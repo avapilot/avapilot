@@ -21,6 +21,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const statusDot = document.getElementById('statusDot');
 
         let signer = null;
+        let conversationId = null; // KEY: Track conversation ID
 
         // --- INITIALIZATION ---
         if (window.ethereum) {
@@ -54,24 +55,37 @@ document.addEventListener('DOMContentLoaded', function() {
             submitBtn.disabled = true;
 
             try {
-                // Get the user's wallet address
                 const userAddress = await signer.getAddress();
+
+                // KEY: Include conversation_id in request
+                const requestBody = { 
+                    message: commandText, 
+                    context: { 
+                        url: window.location.href,
+                        user_address: userAddress
+                    }
+                };
+                
+                // Add conversation_id if it exists
+                if (conversationId) {
+                    requestBody.conversation_id = conversationId;
+                }
 
                 const response = await fetch(API_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        message: commandText, 
-                        context: { 
-                            url: window.location.href,
-                            user_address: userAddress // Add the user's address here
-                        } 
-                    })
+                    body: JSON.stringify(requestBody)
                 });
 
                 if (!response.ok) throw new Error(`API Error: ${response.statusText}`);
 
                 const apiResponse = await response.json();
+                
+                // KEY: Store conversation_id from response
+                if (apiResponse.conversation_id) {
+                    conversationId = apiResponse.conversation_id;
+                    console.log('Conversation ID:', conversationId);
+                }
 
                 if (apiResponse.response_type === 'transaction') {
                     addMessageToHistory('agent', 'Transaction ready. Please check your wallet to sign.');
