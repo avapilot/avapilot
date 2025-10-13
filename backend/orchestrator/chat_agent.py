@@ -109,16 +109,36 @@ def create_chat_agent():
         current_count = state.get('iteration_count', 0)
         print(f"[CHAT AGENT] Iteration {current_count + 1}")
         
-        # Add system prompt as first message if not present
+        # DEBUG: Show loaded messages from checkpointer
         messages = state['messages']
+        print(f"[MEMORY] Loaded {len(messages)} messages from checkpointer")
+        for i, msg in enumerate(messages):
+            msg_type = type(msg).__name__
+            if hasattr(msg, 'content'):
+                content_preview = str(msg.content)[:80] if msg.content else "empty"
+            else:
+                content_preview = "no content"
+            print(f"  [{i}] {msg_type}: {content_preview}...")
+        
+        # Add system prompt as first message if not present
         current_timestamp = int(time.time())
         system_content = CHAT_PROMPT.format(timestamp=current_timestamp)
         
         # Check if first message is system prompt
         if not messages or not (hasattr(messages[0], 'type') and messages[0].type == 'system'):
+            print(f"[MEMORY] Adding system prompt to message history")
             messages = [SystemMessage(content=system_content)] + messages
+        else:
+            print(f"[MEMORY] System prompt already present")
+        
+        print(f"[MEMORY] Sending {len(messages)} messages to LLM")
         
         response = model.invoke(messages)
+        
+        print(f"[MEMORY] LLM response type: {type(response).__name__}")
+        if hasattr(response, 'content'):
+            print(f"[MEMORY] Response preview: {str(response.content)[:100]}...")
+        
         return {
             "messages": [response],
             "iteration_count": current_count + 1
@@ -179,6 +199,8 @@ def run_chat_agent(
     # KEY: Pass conversation_id as thread_id in config
     config = {"configurable": {"thread_id": conversation_id}}
     
+    print(f"[MEMORY] Config: {config}")
+    
     graph = create_chat_agent()
     
     # Accumulate ALL messages
@@ -188,6 +210,8 @@ def run_chat_agent(
         for key, value in output.items():
             if 'messages' in value:
                 all_messages.extend(value['messages'])
+    
+    print(f"[MEMORY] Total messages in response: {len(all_messages)}")
     
     print("#"*60)
     print("CHAT AGENT COMPLETE")
