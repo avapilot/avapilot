@@ -11,9 +11,10 @@ from langchain_core.tools import tool
 import requests
 import json
 from web3 import Web3
-
-# Snowtrace API configuration
-SNOWTRACE_API_URL = "https://api.snowtrace.io/api"
+# mainnet
+# SNOWTRACE_API_URL = "https://api.snowtrace.io/api"
+# Snowtrace API configuration - TESTNET
+SNOWTRACE_API_URL = "https://api-testnet.snowtrace.io/api"  # ← CHANGED
 SNOWTRACE_API_KEY = "placeholder"
 
 # Hardcoded token addresses for Fuji Testnet
