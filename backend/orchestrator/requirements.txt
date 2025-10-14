@@ -7,3 +7,4 @@ langchain-google-genai
 google-cloud-aiplatform
 web3
 requests
+pydantic==2.5.0
