@@ -4,9 +4,16 @@ Main Flask Application - Single unified endpoint with memory
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
+import os
 import uuid
 from chat_agent import run_chat_agent
 
+# --- Configuration ---
+# Set your Google Cloud Project ID
+PROJECT_ID = "avapilot" 
+os.environ["GCLOUD_PROJECT"] = PROJECT_ID
+
+# Initialize the Flask App
 app = Flask(__name__)
 CORS(app)
 
@@ -69,5 +76,6 @@ def chat():
         })
 
 
+# This part is for local testing
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=8080, debug=True)
