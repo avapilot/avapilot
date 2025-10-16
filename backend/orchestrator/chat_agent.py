@@ -4,19 +4,24 @@ Chat Agent - Single orchestrator with all tools and memory
 
 import time
 import json
+import os
 from typing import TypedDict, Annotated, Sequence
-import operator
-from langchain_core.messages import BaseMessage, ToolMessage, HumanMessage, SystemMessage
+from langchain_core.messages import BaseMessage, ToolMessage, HumanMessage, SystemMessage, trim_messages
 from langgraph.graph import StateGraph, END, MessagesState
 from langgraph.prebuilt import ToolNode
-from langgraph.checkpoint.memory import MemorySaver
 from langchain_google_vertexai import ChatVertexAI
 from tools import get_token_address, get_contract_abi, read_contract_function
 from transaction_tool import generate_blockchain_transaction
 
+# Initialize Firestore checkpointer
+from langgraph_checkpoint_firestore import FirestoreSaver
 
-# Global memory checkpointer
-MEMORY_SAVER = MemorySaver()
+
+# Initialize Firestore with project_id only
+project_id = os.getenv("GCP_PROJECT", "avapilot")
+
+# FirestoreSaver creates its own client - just pass project_id
+MEMORY_SAVER = FirestoreSaver(project_id=project_id)
 
 
 class AgentState(MessagesState):
@@ -89,7 +94,7 @@ Current timestamp: {timestamp}
 
 
 def create_chat_agent():
-    """Creates the chat agent with memory"""
+    """Creates the chat agent with Firestore memory"""
     
     tool_list = [
         generate_blockchain_transaction,
@@ -127,35 +132,39 @@ def create_chat_agent():
         current_count = state.get('iteration_count', 0)
         print(f"[CHAT AGENT] Iteration {current_count + 1}")
         
-        # DEBUG: Show loaded messages from checkpointer
-        messages = state['messages']
-        print(f"[MEMORY] Loaded {len(messages)} messages from checkpointer")
-        for i, msg in enumerate(messages):
-            msg_type = type(msg).__name__
-            if hasattr(msg, 'content'):
-                content_preview = str(msg.content)[:80] if msg.content else "empty"
-            else:
-                content_preview = "no content"
-            print(f"  [{i}] {msg_type}: {content_preview}...")
+        # Get messages from state
+        messages = list(state['messages'])
+        print(f"[MEMORY] Loaded {len(messages)} messages from Firestore")
         
-        # Add system prompt as first message if not present
+        # TRIM TO LAST 20 MESSAGES
+        if len(messages) > 20:
+            print(f"[MEMORY] Trimming {len(messages)} → 20 messages")
+            messages = trim_messages(
+                messages,
+                max_tokens=20,
+                strategy="last",
+                token_counter=len,
+                include_system=True,
+                start_on="human"
+            )
+            print(f"[MEMORY] After trim: {len(messages)} messages")
+        
+        # Add system prompt if not present
         current_timestamp = int(time.time())
         system_content = CHAT_PROMPT.format(timestamp=current_timestamp)
         
-        # Check if first message is system prompt
-        if not messages or not (hasattr(messages[0], 'type') and messages[0].type == 'system'):
-            print(f"[MEMORY] Adding system prompt to message history")
-            messages = [SystemMessage(content=system_content)] + messages
-        else:
-            print(f"[MEMORY] System prompt already present")
+        has_system = any(
+            hasattr(msg, 'type') and msg.type == 'system' 
+            for msg in messages
+        )
+        
+        if not has_system:
+            print(f"[MEMORY] Adding system prompt")
+            messages.insert(0, SystemMessage(content=system_content))
         
         print(f"[MEMORY] Sending {len(messages)} messages to LLM")
         
         response = model.invoke(messages)
-        
-        print(f"[MEMORY] LLM response type: {type(response).__name__}")
-        if hasattr(response, 'content'):
-            print(f"[MEMORY] Response preview: {str(response.content)[:100]}...")
         
         return {
             "messages": [response],
@@ -173,7 +182,7 @@ def create_chat_agent():
     )
     workflow.add_edge('call_tools', 'agent')
     
-    # KEY: Compile with memory checkpointer
+    # Use Firestore checkpointer
     return workflow.compile(checkpointer=MEMORY_SAVER)
 
 
@@ -183,7 +192,7 @@ def run_chat_agent(
     conversation_id: str = None
 ) -> dict:
     """
-    Runs the chat agent with memory
+    Runs the chat agent with Firestore memory
     
     Args:
         message: User's message
@@ -208,16 +217,16 @@ def run_chat_agent(
         full_message += f"\n\n**Context:** User's wallet is {user_address}"
     
     # Create input with just the new message
-    # LangGraph will automatically load previous messages from checkpointer
+    # LangGraph will automatically load previous messages from Firestore
     inputs = {
         "messages": [HumanMessage(content=full_message)],
         "iteration_count": 0
     }
     
-    # KEY: Pass conversation_id as thread_id in config
+    # Pass conversation_id as thread_id in config
     config = {"configurable": {"thread_id": conversation_id}}
     
-    print(f"[MEMORY] Config: {config}")
+    print(f"[MEMORY] Using Firestore with thread_id: {conversation_id}")
     
     graph = create_chat_agent()
     

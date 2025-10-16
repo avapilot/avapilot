@@ -2,18 +2,17 @@
 Main Flask Application - Single unified endpoint with memory
 """
 
-from flask import Flask, jsonify, request
-from flask_cors import CORS
 import os
 import uuid
+from flask import Flask, jsonify, request
+from flask_cors import CORS
 from chat_agent import run_chat_agent
 
 # --- Configuration ---
-# Set your Google Cloud Project ID
 PROJECT_ID = "avapilot" 
 os.environ["GCLOUD_PROJECT"] = PROJECT_ID
 
-# Initialize the Flask App
+# Initialize Flask App
 app = Flask(__name__)
 CORS(app)
 
@@ -22,13 +21,33 @@ CORS(app)
 def chat():
     """
     Unified endpoint with memory support
+    
+    Request body:
+    {
+        "message": "What is my USDC balance?",
+        "conversation_id": "conv_abc123",  // Optional - will auto-generate if missing
+        "context": {
+            "user_address": "0x...",       // Optional - user's wallet
+            "dapp_domain": "dex.com"        // Optional - for tracking
+        }
+    }
+    
+    Response:
+    {
+        "conversation_id": "conv_abc123",
+        "response_type": "text" | "transaction" | "error",
+        "payload": {
+            "message": "...",
+            "transaction": {...}  // Only if response_type is "transaction"
+        }
+    }
     """
     req_json = request.get_json()
     message = req_json.get("message")
     context = req_json.get("context", {})
     user_address = context.get("user_address")
     
-    # KEY: Get or create conversation_id
+    # Get or create conversation_id
     conversation_id = req_json.get("conversation_id")
     if not conversation_id:
         conversation_id = f"conv_{uuid.uuid4()}"
@@ -74,6 +93,17 @@ def chat():
             "response_type": "text",
             "payload": {"message": result["message"]}
         })
+
+
+@app.route("/health", methods=['GET'])
+def health():
+    """Health check endpoint for monitoring"""
+    return jsonify({
+        "status": "healthy",
+        "service": "avapilot-orchestrator",
+        "memory": "firestore",
+        "message_limit": 20
+    })
 
 
 # This part is for local testing
