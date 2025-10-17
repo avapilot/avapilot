@@ -10,8 +10,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // --- CONSTANTS & SELECTORS ---
         const FUJI_CHAIN_ID = '0xa869';
-        const API_URL = 'https://avapilot-orchestrator-82975436299.europe-west2.run.app/chat';
-
+        //const API_URL = 'https://avapilot-orchestrator-82975436299.europe-west2.run.app/chat';
+        const API_URL = 'http://127.0.0.1:8080/chat';
         const connectWalletBtn = document.getElementById('connectWalletBtn');
         const submitBtn = document.getElementById('submitBtn');
         const commandInput = document.getElementById('commandInput');
