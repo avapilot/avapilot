@@ -2,9 +2,11 @@ Flask==3.0.0
 gunicorn
 Flask-Cors
 langgraph
+langgraph-checkpoint-firestore
 langchain-google-vertexai
 langchain-google-genai
 google-cloud-aiplatform
 web3
 requests
-pydantic==2.5.0
+pydantic>=2.10.0
+google-cloud-firestore>=2.14.0
