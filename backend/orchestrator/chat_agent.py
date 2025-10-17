@@ -10,7 +10,7 @@ from langchain_core.messages import BaseMessage, ToolMessage, HumanMessage, Syst
 from langgraph.graph import StateGraph, END, MessagesState
 from langgraph.prebuilt import ToolNode
 from langchain_google_vertexai import ChatVertexAI
-from tools import get_token_address, get_contract_abi, read_contract_function
+from tools import get_token_address, get_contract_abi, read_contract_function, analyze_contract
 from transaction_tool import generate_blockchain_transaction
 
 # Initialize Firestore checkpointer
@@ -46,27 +46,107 @@ CHAT_PROMPT = """You are AvaPilot, a helpful blockchain assistant for Avalanche.
    - Get token info: read_contract_function(token_address, "decimals", [])
    - Get token symbol: read_contract_function(token_address, "symbol", [])
    - Get contract owner: read_contract_function(contract_address, "owner", [])
-   Use when user wants to KNOW something
+   - **Get all contracts: read_contract_function(contract_address, "getAllContracts", [])**
+   - **Get array data: This tool fully supports arrays (uint256[], address[], etc.)**
+   
+   **IMPORTANT: This tool handles ALL return types including:**
+   - Arrays of any type (uint256[], address[], string[], etc.)
+   - Tuples and structs
+   - Nested data structures
+   - Multiple return values
+   
+   Use when user wants to KNOW something. Don't refuse based on return type complexity
 
 3. **get_token_address** - Get contract address for tokens (WAVAX, USDC)
 
-4. **get_contract_abi** - Get ABI to see available functions
+4. **get_contract_abi** - Get raw ABI (rarely needed)
+
+5. **analyze_contract** - DEEP contract analysis with dedicated agent
+   - Returns comprehensive technical analysis report
+   - **IMPORTANT: You MUST extract and simplify the relevant parts for the user**
+   
+   **After calling analyze_contract:**
+   
+   The tool returns a detailed technical report. Your job is to:
+   1. Read the FULL analysis (including code snippets if available)
+   2. Extract ONLY what answers the user's specific question
+   3. Present in clear, conversational language
+   4. Include specific details from source code if available
+   5. Highlight risks with emoji (🚨 ⚠️ ✅)
+   
+   **Response Strategy by Question Type:**
+   
+   **"What does contract X do?"**
+   → Extract: Purpose, main functions, what users can do
+   → Format: 2-3 sentence summary + bullet points
+   → Skip: Detailed code, security deep-dive
+   
+   **"How does function Y work?"** ⭐ THIS IS KEY
+   → Extract: That specific function's actual code logic (if source available)
+   → Show: Step-by-step what the function does internally
+   → Include: Any checks, state changes, risks in that function
+   → Format: Clear steps with explanations
+   → Skip: Other functions, general contract info
+   
+   **"Can I lose money?"**
+   → Extract: Financial risks, money flows, worst-case scenarios
+   → Format: Direct yes/no + explanation + risk ratings
+   → Skip: Technical implementation details
+   
+   **"Is contract X safe?"**
+   → Extract: Security assessment, critical vulnerabilities
+   → Format: Risk summary + specific issues + recommendations
+   → Skip: Non-security functionality
+   
+   **CRITICAL for function-specific questions:**
+   - If analysis includes source code details → INCLUDE THEM in your response
+   - If analysis shows what lines of code do → EXPLAIN THEM simply
+   - If analysis identifies function-specific risks → HIGHLIGHT THEM
+   - Don't just say "based on ABI" if source code was analyzed
+   
+   **Example of extracting code details:**
+   
+   User: "How does triggerPayout work?"
+   
+   Analysis report includes:
+   ```
+   Line 249: require(!contracts[contractId].triggered, "Already triggered");
+   Line 250: require(currentPrice <= triggerPrice, "Condition not met");
+   Line 252: contracts[contractId].triggered = true;
+   ```
+   
+   YOUR RESPONSE should be:
+   "The triggerPayout function does 3 things:
+   
+   1. **Checks if not already triggered** - Prevents double payouts by verifying the contract hasn't been triggered yet
+   
+   2. **Verifies price condition** - Compares current price against the trigger price. If current price isn't low enough, the transaction fails
+   
+   3. **Marks as triggered** - Sets a flag so users can claim their payout via claimPayout()
+   
+   🚨 **Risk**: Anyone can call this with ANY price value - there's no oracle verification, so someone could input a false price to trigger payouts incorrectly."
+   
+   **Response Rules:**
+   - Be conversational and helpful
+   - Extract what matters to the user
+   - If source code was analyzed, show actual logic (simplified)
+   - Don't dump the entire technical report
+   - Don't say "based on the analysis" - just answer directly
+   - Keep it under 300 words unless user asks for detail
 
 **Decision Guide:**
+- "What does contract X do?" → analyze_contract
+- "How does function Y work?" → analyze_contract + extract code logic
+- "Can I lose money?" → analyze_contract + extract risks
+- "Is X safe?" → analyze_contract + extract security assessment
 - "Swap X for Y" → generate_blockchain_transaction
 - "What's my balance?" → read_contract_function
-- "Transfer X to Y" → generate_blockchain_transaction
-- "Check allowance" → read_contract_function
-- "What does contract X do?" → get_contract_abi, then explain
-- "Who owns contract X?" → get_contract_abi, then read_contract_function("owner", [])
-- "How does X work?" → answer directly with your knowledge
 
 **For Contract Information Queries:**
-1. Automatically fetch ABI with get_contract_abi
-2. Analyze the ABI to understand the contract
-3. If user asks about owner, check if owner() function exists
-4. If it exists, call read_contract_function to get the owner address
-5. DO NOT ask for permission - just do it!
+1. Call analyze_contract to get comprehensive analysis
+2. Extract and simplify the relevant parts for the user
+3. If user wants specific values (owner, balance), use read_contract_function
+4. DO NOT ask for permission - just do it!
 
 **For Balance Queries:**
 1. Call read_contract_function to get raw balance
@@ -78,12 +158,6 @@ CHAT_PROMPT = """You are AvaPilot, a helpful blockchain assistant for Avalanche.
 - If user provides ALL details (amount, tokens, contract) → immediately call generate_blockchain_transaction
 - If ANY detail is missing → ask the user
 - Do NOT ask for confirmation if user already provided everything
-
-**Example Flow for "What is the owner of 0xABC?":**
-Step 1: Call get_contract_abi("0xABC")
-Step 2: Parse ABI and look for owner() function
-Step 3: If found, call read_contract_function("0xABC", "owner", [])
-Step 4: Return: "The owner of this contract is 0xDEF..."
 
 **IMPORTANT:** Be proactive! Don't ask permission to use tools - just use them to answer the user's question.
 
@@ -100,7 +174,8 @@ def create_chat_agent():
         generate_blockchain_transaction,
         read_contract_function,
         get_token_address,
-        get_contract_abi
+        get_contract_abi,
+        analyze_contract  # Add new tool
     ]
     
     model = ChatVertexAI(

@@ -11,6 +11,8 @@ from langchain_core.tools import tool
 import requests
 import json
 from web3 import Web3
+from contract_analyzer import identify_contract_type, explain_contract
+
 # mainnet
 # SNOWTRACE_API_URL = "https://api.snowtrace.io/api"
 # Snowtrace API configuration - TESTNET
@@ -73,123 +75,35 @@ def get_contract_abi_impl(contract_address: str) -> str:
         return error
 
 
-def read_contract_function_impl(
+@tool
+def read_contract_function(
     contract_address: str,
     function_name: str,
     function_args: list
-) -> dict:
+) -> str:
     """
-    Implementation for reading contract state (view/pure functions only).
-    Simple and direct - no agent needed!
-    """
-    print(f"\n{'='*60}")
-    print(f"[READ] {function_name} on {contract_address}")
-    print(f"{'='*60}")
-    print(f"  Args: {function_args}")
+    Reads data from a smart contract (view/pure functions only).
     
-    try:
-        # Connect to RPC
-        w3 = Web3(Web3.HTTPProvider(FUJI_RPC_URL))
-        if not w3.is_connected():
-            return {"success": False, "error": "RPC connection failed"}
+    **SUPPORTS ALL RETURN TYPES:** This tool successfully handles:
+    - Simple types (uint256, address, bool, string)
+    - Arrays (uint256[], address[], bytes32[], etc.)
+    - Tuples and complex structs
+    - Nested data structures
+    
+    Common use cases:
+    - Check token balance: read_contract_function("0xUSDC...", "balanceOf", ["0xUserAddr..."])
+    - Get all contracts: read_contract_function("0xContract...", "getAllContracts", [])
+    - Get array of IDs: read_contract_function("0xContract...", "getAllIds", [])
+    
+    Args:
+        contract_address: Contract to read from
+        function_name: Function to call (must be view/pure)
+        function_args: Arguments as list (use [] for functions with no arguments)
         
-        print(f"  ✓ Connected to Avalanche Fuji")
-        
-        # Get ABI
-        abi = get_contract_abi_impl(contract_address)
-        if abi.startswith("Error"):
-            return {"success": False, "error": abi}
-        
-        contract_abi = json.loads(abi)
-        
-        # Clean ABI (same logic as generate_transaction_impl)
-        cleaned_abi = []
-        for item in contract_abi:
-            cleaned_item = dict(item)
-            
-            if 'inputs' in cleaned_item:
-                cleaned_inputs = []
-                for inp in cleaned_item['inputs']:
-                    cleaned_inp = dict(inp)
-                    if 'type' not in cleaned_inp and 'internalType' in cleaned_inp:
-                        cleaned_inp['type'] = cleaned_inp['internalType']
-                    cleaned_inputs.append(cleaned_inp)
-                cleaned_item['inputs'] = cleaned_inputs
-            
-            if 'outputs' in cleaned_item:
-                cleaned_outputs = []
-                for out in cleaned_item['outputs']:
-                    cleaned_out = dict(out)
-                    if 'type' not in cleaned_out and 'internalType' in cleaned_out:
-                        cleaned_out['type'] = cleaned_out['internalType']
-                    cleaned_outputs.append(cleaned_out)
-                cleaned_item['outputs'] = cleaned_outputs
-            
-            cleaned_abi.append(cleaned_item)
-        
-        print(f"  ✓ ABI parsed and cleaned")
-        
-        # Find function
-        function_abi = None
-        for item in cleaned_abi:
-            if item.get('name') == function_name:
-                state_mutability = item.get('stateMutability', '')
-                if state_mutability not in ['view', 'pure']:
-                    return {
-                        "success": False,
-                        "error": f"'{function_name}' is not a read-only function (mutability: {state_mutability})"
-                    }
-                function_abi = item
-                break
-        
-        if not function_abi:
-            return {"success": False, "error": f"Function '{function_name}' not found in ABI"}
-        
-        print(f"  ✓ Function found (read-only)")
-        
-        # Convert arguments to proper types
-        converted_args = []
-        for arg, param in zip(function_args, function_abi.get('inputs', [])):
-            param_type = param['type']
-            
-            if param_type.startswith('uint') or param_type.startswith('int'):
-                converted = int(float(arg)) if isinstance(arg, (str, float)) else arg
-            elif param_type == 'address':
-                converted = Web3.to_checksum_address(arg.lower()) if isinstance(arg, str) else arg
-            elif param_type == 'address[]':
-                converted = [Web3.to_checksum_address(a.lower()) for a in arg] if isinstance(arg, list) else arg
-            elif param_type == 'bool':
-                converted = bool(arg) if not isinstance(arg, str) else arg.lower() in ['true', '1', 'yes']
-            else:
-                converted = arg
-            
-            converted_args.append(converted)
-        
-        print(f"  ✓ Arguments converted: {converted_args}")
-        
-        # Create contract and call
-        contract_address = Web3.to_checksum_address(contract_address.lower())
-        contract = w3.eth.contract(address=contract_address, abi=cleaned_abi)
-        
-        print(f"  → Calling {function_name}({converted_args})...")
-        result = contract.functions[function_name](*converted_args).call()
-        
-        print(f"  ✓ Result: {result} (type: {type(result).__name__})")
-        print(f"{'='*60}\n")
-        
-        return {
-            "success": True,
-            "result": str(result),  # Convert to string for JSON serialization
-            "result_type": type(result).__name__
-        }
-        
-    except Exception as e:
-        error_msg = f"Read failed: {str(e)}"
-        print(f"  ✗ {error_msg}")
-        traceback.print_exc()
-        print(f"{'='*60}\n")
-        return {"success": False, "error": error_msg}
-
+    Returns:
+        JSON string with {"success": true, "result": "..."} or {"success": false, "error": "..."}
+        Result can be any type including arrays and will be properly serialized.
+    """
 
 def generate_transaction_impl(
     contract_address: str,
@@ -374,5 +288,246 @@ def read_contract_function(
     return json.dumps(result)
 
 
-# NOTE: generate_transaction is NOT exposed as a @tool here
-# It's wrapped in transaction_tool.py as generate_blockchain_transaction
+
+@tool
+def analyze_contract(contract_address: str) -> str:
+    """
+    Deeply analyzes a smart contract using a dedicated analysis agent.
+    
+    Handles large contracts automatically through:
+    - Smart chunking of source code
+    - Iterative analysis with specialized tools
+    - Focused examination of critical functions
+    - Comprehensive security assessment
+    
+    Use this when user asks:
+    - "What does contract X do?"
+    - "How does contract X work?"
+    - "Analyze contract X"
+    - "What are the risks of contract X?"
+    - "Is contract X safe?"
+    
+    Args:
+        contract_address: The contract address to analyze
+        
+    Returns:
+        Comprehensive analysis report with security assessment
+    """
+    from contract_analysis_agent import run_contract_analysis
+    
+    print(f"[TOOL] analyze_contract called: {contract_address}")
+    
+    # Get ABI
+    abi_json = get_contract_abi_impl(contract_address)
+    
+    if abi_json.startswith("Error"):
+        return f"Could not analyze contract: {abi_json}"
+    
+    try:
+        abi = json.loads(abi_json)
+        
+        # Quick type identification for header
+        analysis = identify_contract_type(abi)
+        functions = [item['name'] for item in abi if item.get('type') == 'function']
+        
+        # Try to get source code
+        print("[ANALYZE] Attempting to retrieve source code...")
+        source_code = get_source_code_impl(contract_address)
+        
+        has_source = source_code and not source_code.startswith("Error")
+        verification_badge = "✅ VERIFIED" if has_source else "⚠️ UNVERIFIED"
+        
+        if has_source:
+            print(f"[ANALYZE] ✅ Source code found ({len(source_code)} chars)")
+        else:
+            print(f"[ANALYZE] ⚠️ No source code available")
+            source_code = None
+        
+        # Run dedicated analysis agent
+        print("[ANALYZE] Launching contract analysis agent...")
+        analysis_report = run_contract_analysis(
+            contract_address=contract_address,
+            abi=abi,
+            source_code=source_code
+        )
+        
+        # Build final response with header
+        result = f"""**🔍 Deep Contract Analysis**
+
+**Contract:** `{contract_address}`
+**Status:** {verification_badge}
+**Classification:** {analysis['type'].replace('_', ' ').title()} (Confidence: {int(analysis['confidence']*100)}%)
+**Total Functions:** {len(functions)}
+**Analysis Method:** {'Source Code Review' if has_source else 'ABI-Based Inference'}
+
+---
+
+{analysis_report}
+
+---
+
+*Analysis generated by specialized contract analysis agent.*
+*{'' if has_source else '⚠️ Source code not verified - analysis based on function signatures only.'}*
+*Always verify and test with small amounts first.*"""
+        
+        return result
+        
+    except Exception as e:
+        error_msg = f"Error analyzing contract: {str(e)}"
+        print(f"[ANALYZE ERROR] {error_msg}")
+        import traceback
+        traceback.print_exc()
+        return error_msg
+
+
+def get_source_code_impl(contract_address: str) -> str:
+    """
+    Fetches verified source code from block explorer
+    """
+    print(f"  [IMPL] get_source_code({contract_address})")
+    
+    params = {
+        "module": "contract",
+        "action": "getsourcecode",
+        "address": contract_address,
+        "apikey": SNOWTRACE_API_KEY
+    }
+    
+    try:
+        response = requests.get(SNOWTRACE_API_URL, params=params)
+        response.raise_for_status()
+        data = response.json()
+        
+        if data["status"] == "1" and data["result"]:
+            result = data["result"][0]
+            source_code = result.get("SourceCode", "")
+            
+            if source_code:
+                # Handle JSON-wrapped source
+                if source_code.startswith("{"):
+                    try:
+                        source_json = json.loads(source_code)
+                        if "sources" in source_json:
+                            all_sources = []
+                            for filename, content in source_json["sources"].items():
+                                all_sources.append(f"// File: {filename}\n{content.get('content', '')}")
+                            source_code = "\n\n".join(all_sources)
+                    except:
+                        pass
+                
+                print(f"  [IMPL] ✅ Source code retrieved ({len(source_code)} chars)")
+                return source_code
+            else:
+                error = "Error: Contract source code not verified"
+                print(f"  [IMPL] ⚠️ {error}")
+                return error
+        else:
+            error = f"Error fetching source: {data.get('message', 'Unknown error')}"
+            print(f"  [IMPL] ❌ {error}")
+            return error
+            
+    except Exception as e:
+        error = f"Error: {str(e)}"
+        print(f"  [IMPL] ❌ {error}")
+        return error
+
+
+def read_contract_function_impl(
+    contract_address: str,
+    function_name: str,
+    function_args: list
+) -> dict:
+    """
+    Implementation for reading contract state (view/pure functions only).
+    """
+    print(f"\n{'='*60}")
+    print(f"[READ] {function_name} on {contract_address}")
+    print(f"{'='*60}")
+    print(f"  Args: {function_args}")
+    print(f"  Args type: {type(function_args)}")
+    print(f"  Args length: {len(function_args)}")
+    
+    try:
+        # Connect to RPC
+        w3 = Web3(Web3.HTTPProvider(FUJI_RPC_URL))
+        if not w3.is_connected():
+            error = "RPC connection failed"
+            print(f"  ✗ {error}")
+            return {"success": False, "error": error}
+        
+        print(f"  ✓ Connected to Avalanche Fuji")
+        
+        # Get ABI
+        abi = get_contract_abi_impl(contract_address)
+        if abi.startswith("Error"):
+            print(f"  ✗ ABI fetch failed: {abi}")
+            return {"success": False, "error": abi}
+        
+        contract_abi = json.loads(abi)
+        print(f"  ✓ ABI loaded, {len(contract_abi)} items")
+        
+        # Find function in ABI
+        function_abi = None
+        for item in contract_abi:
+            if item.get('name') == function_name and item.get('type') == 'function':
+                function_abi = item
+                break
+        
+        if not function_abi:
+            error = f"Function '{function_name}' not found in contract ABI"
+            print(f"  ✗ {error}")
+            return {"success": False, "error": error}
+        
+        print(f"  ✓ Function found in ABI")
+        print(f"    Inputs: {function_abi.get('inputs', [])}")
+        print(f"    Outputs: {function_abi.get('outputs', [])}")
+        
+        # Convert arguments
+        converted_args = []
+        for i, (arg, param) in enumerate(zip(function_args, function_abi.get('inputs', []))):
+            param_type = param.get('type', 'unknown')
+            print(f"    Converting arg {i}: {arg} ({type(arg).__name__}) → {param_type}")
+            
+            if param_type.startswith('uint') or param_type.startswith('int'):
+                converted = int(float(arg)) if isinstance(arg, (str, float)) else arg
+            elif param_type == 'address':
+                converted = Web3.to_checksum_address(arg.lower()) if isinstance(arg, str) else arg
+            elif param_type == 'bool':
+                converted = bool(arg) if not isinstance(arg, str) else arg.lower() in ['true', '1', 'yes']
+            else:
+                converted = arg
+            
+            converted_args.append(converted)
+            print(f"      → {converted}")
+        
+        print(f"  ✓ Arguments converted: {converted_args}")
+        
+        # Create contract instance
+        contract_address_checksum = Web3.to_checksum_address(contract_address.lower())
+        contract = w3.eth.contract(address=contract_address_checksum, abi=contract_abi)
+        print(f"  ✓ Contract instance created")
+        
+        # Call function
+        print(f"  → Calling contract.functions.{function_name}({converted_args})...")
+        contract_function = contract.functions[function_name](*converted_args)
+        result = contract_function.call()
+        
+        print(f"  ✓✓✓ SUCCESS")
+        print(f"    Result type: {type(result).__name__}")
+        print(f"    Result value: {result}")
+        print(f"{'='*60}\n")
+        
+        # Serialize result
+        if isinstance(result, (list, tuple)):
+            serialized = [str(item) for item in result]
+        else:
+            serialized = str(result)
+        
+        return {"success": True, "result": serialized}
+        
+    except Exception as e:
+        error_msg = f"Error reading contract: {str(e)}"
+        print(f"  ✗✗✗ ERROR: {error_msg}")
+        traceback.print_exc()
+        print(f"{'='*60}\n")
+        return {"success": False, "error": error_msg}
