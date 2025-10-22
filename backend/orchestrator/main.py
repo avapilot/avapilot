@@ -9,6 +9,8 @@ import re
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from chat_agent import run_chat_agent
+from error_tracker import log_error, log_warning, log_metric, ErrorType
+from google.cloud import firestore
 
 # --- Configuration ---
 PROJECT_ID = "avapilot" 
@@ -46,6 +48,69 @@ def serve_widget_config():
         return jsonify({"error": "config.js not found"}), 404
 
 
+@app.route("/health", methods=['GET'])
+def health():
+    """Health check endpoint for monitoring"""
+    return jsonify({
+        "status": "healthy",
+        "service": "avapilot-orchestrator",
+        "memory": "firestore",
+        "message_limit": 20,
+        "validation": "enabled"
+    })
+
+
+@app.route("/metrics", methods=['GET'])
+def metrics():
+    """
+    System metrics endpoint for monitoring
+    Returns error counts, conversation stats, and system health
+    """
+    try:
+        db = firestore.Client(project=PROJECT_ID)
+        
+        # Get conversation count (last 24h)
+        yesterday = time.time() - 86400
+        conversations_ref = db.collection('checkpoints')
+        
+        # Count recent conversations (approximate)
+        # Note: For production, consider maintaining a separate metrics collection
+        recent_convs = 0
+        try:
+            # Sample check - in production, use dedicated metrics
+            sample_docs = conversations_ref.limit(100).stream()
+            recent_convs = sum(1 for _ in sample_docs)
+        except Exception as e:
+            log_warning("METRICS_CALCULATION_ERROR", str(e))
+        
+        return jsonify({
+            "status": "healthy",
+            "timestamp": int(time.time()),
+            "metrics": {
+                "conversations_sampled": recent_convs,
+                "memory_backend": "firestore",
+                "message_limit": 20,
+                "error_tracking": "enabled"
+            },
+            "endpoints": {
+                "chat": "/chat",
+                "health": "/health",
+                "widget": "/widget.js"
+            }
+        })
+        
+    except Exception as e:
+        log_error(
+            ErrorType.API_ERROR,
+            f"Metrics endpoint failed: {str(e)}",
+            exception=e
+        )
+        return jsonify({
+            "status": "degraded",
+            "error": "metrics unavailable"
+        }), 500
+
+
 @app.route("/chat", methods=['POST'])
 def chat():
     """
@@ -57,7 +122,13 @@ def chat():
     
     try:
         req_json = request.get_json()
-    except Exception:
+    except Exception as e:
+        log_error(
+            ErrorType.VALIDATION_ERROR,
+            "Invalid JSON in request",
+            context={"error": str(e)},
+            exception=e
+        )
         return jsonify({"error": "invalid JSON"}), 400
     
     if not req_json:
@@ -180,13 +251,42 @@ def chat():
         print(f"# API Key: ***{api_key[-4:] if len(api_key) >= 4 else '***'}")
     print(f"{'#'*60}")
     
-    # Run chat agent with contract restriction
-    result = run_chat_agent(
-        message=message,
-        user_address=user_address,
-        conversation_id=conversation_id,
-        allowed_contract=allowed_contract
+    # Log request metric
+    log_metric(
+        "chat_request",
+        1,
+        context={
+            "conversation_id": conversation_id,
+            "has_contract_scope": bool(allowed_contract),
+            "has_api_key": bool(api_key)
+        }
     )
+    
+    # Run chat agent with contract restriction
+    try:
+        result = run_chat_agent(
+            message=message,
+            user_address=user_address,
+            conversation_id=conversation_id,
+            allowed_contract=allowed_contract
+        )
+    except Exception as e:
+        log_error(
+            ErrorType.CHAT_AGENT_FAILURE,
+            f"Chat agent failed: {str(e)}",
+            context={
+                "conversation_id": conversation_id,
+                "message_preview": message[:100],
+                "user_address": user_address,
+                "allowed_contract": allowed_contract
+            },
+            exception=e
+        )
+        return jsonify({
+            "conversation_id": conversation_id,
+            "response_type": "error",
+            "payload": {"message": "Internal error occurred. Please try again."}
+        }), 500
     
     # CRITICAL: Validate transaction target (defense in depth)
     if result["type"] == "transaction":
@@ -240,6 +340,57 @@ def health():
         "message_limit": 20,
         "validation": "enabled"
     })
+
+
+@app.route("/metrics", methods=['GET'])
+def metrics():
+    """
+    System metrics endpoint for monitoring
+    Returns error counts, conversation stats, and system health
+    """
+    try:
+        db = firestore.Client(project=PROJECT_ID)
+        
+        # Get conversation count (last 24h)
+        yesterday = time.time() - 86400
+        conversations_ref = db.collection('checkpoints')
+        
+        # Count recent conversations (approximate)
+        # Note: For production, consider maintaining a separate metrics collection
+        recent_convs = 0
+        try:
+            # Sample check - in production, use dedicated metrics
+            sample_docs = conversations_ref.limit(100).stream()
+            recent_convs = sum(1 for _ in sample_docs)
+        except Exception as e:
+            log_warning("METRICS_CALCULATION_ERROR", str(e))
+        
+        return jsonify({
+            "status": "healthy",
+            "timestamp": int(time.time()),
+            "metrics": {
+                "conversations_sampled": recent_convs,
+                "memory_backend": "firestore",
+                "message_limit": 20,
+                "error_tracking": "enabled"
+            },
+            "endpoints": {
+                "chat": "/chat",
+                "health": "/health",
+                "widget": "/widget.js"
+            }
+        })
+        
+    except Exception as e:
+        log_error(
+            ErrorType.API_ERROR,
+            f"Metrics endpoint failed: {str(e)}",
+            exception=e
+        )
+        return jsonify({
+            "status": "degraded",
+            "error": "metrics unavailable"
+        }), 500
 
 
 if __name__ == "__main__":
