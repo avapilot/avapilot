@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AvaPilot Chat</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: white;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    #header {
+      padding: 16px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    #scopeBadge {
+      font-size: 11px;
+      background: rgba(255,255,255,0.2);
+      padding: 4px 8px;
+      border-radius: 4px;
+    }
+    #messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+    }
+    .message {
+      margin-bottom: 12px;
+      padding: 10px;
+      border-radius: 8px;
+      max-width: 80%;
+      animation: fadeIn 0.3s;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .user-message {
+      background: #E3F2FD;
+      margin-left: auto;
+      text-align: right;
+    }
+    .agent-message {
+      background: #F5F5F5;
+    }
+    #inputContainer {
+      padding: 16px;
+      border-top: 1px solid #eee;
+      display: flex;
+      gap: 8px;
+    }
+    input {
+      flex: 1;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+    button {
+      padding: 10px 20px;
+      background: #667eea;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    button:hover { background: #5568d3; }
+    button:disabled { background: #ccc; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <div id="header">
+    <span><strong>AvaPilot</strong></span>
+    <span id="scopeBadge">🔒 Scoped</span>
+  </div>
+  <div id="messages"></div>
+  <div id="inputContainer">
+    <input id="messageInput" placeholder="Ask me anything..." disabled>
+    <button id="sendBtn" disabled>Send</button>
+  </div>
+  
+  <script>
+    // Get configuration from URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const allowedContract = urlParams.get('contract');
+    const apiKey = urlParams.get('apiKey');
+    const primaryColor = urlParams.get('color') || '#667eea';
+    
+    // State
+    let userAddress = null;
+    let conversationId = null;
+    
+    // Update scope badge
+    document.getElementById('scopeBadge').textContent = 
+      `🔒 ${allowedContract.substring(0,6)}...${allowedContract.substring(38)}`;
+    
+    // Request wallet info from parent
+    window.parent.postMessage({ type: 'AVAPILOT_WALLET_REQUEST' }, '*');
+    
+    // Listen for wallet info and transaction results
+    window.addEventListener('message', (e) => {
+      if (e.data.type === 'AVAPILOT_WALLET_CONNECTED') {
+        userAddress = e.data.address;
+        if (userAddress) {
+          addMessage('agent', `Connected: ${userAddress.substring(0,6)}...${userAddress.substring(38)}`);
+          document.getElementById('messageInput').disabled = false;
+          document.getElementById('sendBtn').disabled = false;
+        } else {
+          addMessage('agent', 'Please connect your wallet on the parent page first.');
+        }
+      }
+      
+      if (e.data.type === 'AVAPILOT_WALLET_ERROR') {
+        addMessage('agent', `Wallet error: ${e.data.error}`);
+      }
+      
+      if (e.data.type === 'AVAPILOT_TX_SUCCESS') {
+        addMessage('agent', `✅ Transaction sent! Hash: ${e.data.txHash.substring(0,10)}...`);
+      }
+      
+      if (e.data.type === 'AVAPILOT_TX_ERROR') {
+        addMessage('agent', `❌ Transaction failed: ${e.data.error}`);
+      }
+      
+      if (e.data.type === 'AVAPILOT_TX_BLOCKED') {
+        addMessage('agent', `🚨 Transaction blocked: ${e.data.reason}`);
+      }
+    });
+    
+    // Send message handler
+    document.getElementById('sendBtn').onclick = async () => {
+      const input = document.getElementById('messageInput');
+      const message = input.value.trim();
+      if (!message) return;
+      
+      addMessage('user', message);
+      input.value = '';
+      input.disabled = true;
+      document.getElementById('sendBtn').disabled = true;
+      
+      try {
+        const requestBody = {
+          message,
+          conversation_id: conversationId,
+          context: {
+            user_address: userAddress,
+            allowed_contract: allowedContract,
+            api_key: apiKey
+          }
+        };
+        
+        const response = await fetch('http://localhost:8080/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody)
+        });
+        
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.payload?.message || 'Request failed');
+        }
+        
+        const data = await response.json();
+        conversationId = data.conversation_id;
+        
+        if (data.response_type === 'transaction') {
+          addMessage('agent', '📝 Transaction ready. Checking security...');
+          
+          const tx = data.payload.transaction;
+          
+          // CRITICAL: Double-check transaction target
+          if (tx.to.toLowerCase() !== allowedContract.toLowerCase()) {
+            addMessage('agent', `🚨 Security violation detected! Transaction targets ${tx.to} but widget is scoped to ${allowedContract}. Blocked.`);
+            return;
+          }
+          
+          addMessage('agent', 'Please check your wallet to sign the transaction.');
+          
+          // Request parent to execute
+          window.parent.postMessage({
+            type: 'AVAPILOT_EXECUTE_TX',
+            transaction: tx
+          }, '*');
+          
+        } else {
+          addMessage('agent', data.payload.message);
+        }
+        
+      } catch (error) {
+        addMessage('agent', `Error: ${error.message}`);
+      } finally {
+        input.disabled = false;
+        document.getElementById('sendBtn').disabled = false;
+        input.focus();
+      }
+    };
+    
+    // Enter key support
+    document.getElementById('messageInput').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        document.getElementById('sendBtn').click();
+      }
+    });
+    
+    function addMessage(sender, text) {
+      const div = document.createElement('div');
+      div.className = `message ${sender}-message`;
+      div.textContent = text;
+      document.getElementById('messages').appendChild(div);
+      div.scrollIntoView({ behavior: 'smooth' });
+    }
+    
+    // Initial greeting
+    addMessage('agent', 'Hi! I\'m AvaPilot. How can I help you today?');
+  </script>
+</body>
+</html>

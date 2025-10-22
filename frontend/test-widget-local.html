@@ -1,0 +1,86 @@
+# Create test file in the correct location
+cat > frontend/test-widget-local.html << 'EOF'
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Widget Test - Local</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 40px;
+      background: #f5f5f5;
+    }
+    .test-container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    h1 { color: #667eea; }
+    .checklist {
+      background: #f9f9f9;
+      padding: 20px;
+      border-radius: 6px;
+      margin: 20px 0;
+    }
+    .checklist li {
+      margin: 10px 0;
+      padding: 8px;
+    }
+    code {
+      background: #e3f2fd;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+  <div class="test-container">
+    <h1>🧪 AvaPilot Widget Test (Local)</h1>
+    <p>This page tests Phase 1 widget functionality.</p>
+    
+    <div class="checklist">
+      <h3>✅ Manual Test Checklist:</h3>
+      <ol>
+        <li>✓ Connect MetaMask to <strong>Avalanche Fuji Testnet</strong></li>
+        <li>✓ Chat bubble appears in <strong>bottom-right corner</strong></li>
+        <li>✓ Click bubble → widget opens</li>
+        <li>✓ Scope badge shows: <code>🔒 0x60aE...3d4</code></li>
+        <li>✓ Widget shows: <em>"Connected: 0x..."</em></li>
+        <li>✓ Input field is <strong>enabled</strong></li>
+        <li>✓ Send a message → agent responds</li>
+        <li>✓ Check browser console for errors</li>
+      </ol>
+    </div>
+    
+    <div class="checklist">
+      <h3>🔧 Backend Must Be Running:</h3>
+      <pre style="background: #263238; color: #aed581; padding: 15px; border-radius: 6px;">cd backend/orchestrator
+export GOOGLE_APPLICATION_CREDENTIALS="../../key.json"
+python main.py</pre>
+      <p><strong>Backend URL:</strong> <code>http://localhost:8080</code></p>
+    </div>
+    
+    <div class="checklist">
+      <h3>📊 Expected Console Logs:</h3>
+      <ul>
+        <li><code>✅ AvaPilot widget loaded</code></li>
+        <li><code>Base URL: http://localhost:8080</code></li>
+        <li><code>Scoped to: 0x60aE616a2155Ee3d9A68541Ba4544862310933d4</code></li>
+        <li><code>API Key: ***_key</code></li>
+      </ul>
+    </div>
+  </div>
+  
+  <!-- Load widget from backend (port 8080) -->
+  <script src="http://localhost:8080/widget.js" 
+          data-contract="0xc62C15AD56f54757bb074e0779aE85e54FD67861"
+          data-api-key="test_local_key"></script>
+</body>
+</html>
+EOF

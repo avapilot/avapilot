@@ -6,7 +6,7 @@ import time
 import json
 import os
 from typing import TypedDict, Annotated, Sequence
-from langchain_core.messages import BaseMessage, ToolMessage, HumanMessage, SystemMessage, trim_messages
+from langchain_core.messages import BaseMessage, ToolMessage, HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, END, MessagesState
 from langgraph.prebuilt import ToolNode
 from langchain_google_vertexai import ChatVertexAI
@@ -29,7 +29,37 @@ class AgentState(MessagesState):
     iteration_count: int = 0
 
 
+# NEW: Contract scoping rules template
+CONTRACT_SCOPING_RULES = """
+**🔒 CRITICAL SECURITY RULE - CONTRACT SCOPING:**
+
+You are currently scoped to ONLY work with this contract:
+**Allowed Contract:** `{allowed_contract}`
+
+**YOU MUST:**
+1. ONLY generate transactions for the allowed contract address above
+2. ONLY provide information about the allowed contract when asked about contracts
+3. If user asks about a different contract, politely explain you're scoped
+4. Never suggest or recommend other contract addresses
+
+**EXAMPLES:**
+
+User: "Swap AVAX for USDC"
+You: "I'll use the allowed contract at {allowed_contract}..." ✅
+
+User: "What about using Pangolin instead?"
+You: "I'm configured to only assist with {allowed_contract}. For other contracts, please visit their respective sites." ✅
+
+User: "Is contract 0xOTHER safer?"
+You: "I can only analyze and interact with {allowed_contract}. I cannot compare or recommend other contracts." ✅
+
+**NEVER generate transactions to any contract except {allowed_contract}.**
+"""
+
+# Update existing CHAT_PROMPT
 CHAT_PROMPT = """You are AvaPilot, a helpful blockchain assistant for Avalanche.
+
+{contract_scoping_rules}
 
 **Available Tools:**
 
@@ -175,7 +205,7 @@ def create_chat_agent():
         read_contract_function,
         get_token_address,
         get_contract_abi,
-        analyze_contract  # Add new tool
+        analyze_contract
     ]
     
     model = ChatVertexAI(
@@ -207,27 +237,72 @@ def create_chat_agent():
         current_count = state.get('iteration_count', 0)
         print(f"[CHAT AGENT] Iteration {current_count + 1}")
         
-        # Get messages from state
         messages = list(state['messages'])
         print(f"[MEMORY] Loaded {len(messages)} messages from Firestore")
         
-        # TRIM TO LAST 20 MESSAGES
+        # ✅ FIXED: Simple trimming to last 20 messages
         if len(messages) > 20:
             print(f"[MEMORY] Trimming {len(messages)} → 20 messages")
-            messages = trim_messages(
-                messages,
-                max_tokens=20,
-                strategy="last",
-                token_counter=len,
-                include_system=True,
-                start_on="human"
-            )
+            
+            # Find the last HumanMessage to keep context
+            last_human_idx = None
+            for i in range(len(messages) - 1, -1, -1):
+                if isinstance(messages[i], HumanMessage):
+                    last_human_idx = i
+                    break
+            
+            if last_human_idx is not None and last_human_idx > len(messages) - 20:
+                # Keep from last human message onwards
+                print(f"[MEMORY] Keeping messages from last human message (index {last_human_idx})")
+                messages = messages[last_human_idx:]
+            else:
+                # Fallback: just take last 20 messages
+                print(f"[MEMORY] Taking last 20 messages")
+                messages = messages[-20:]
+            
             print(f"[MEMORY] After trim: {len(messages)} messages")
         
-        # Add system prompt if not present
-        current_timestamp = int(time.time())
-        system_content = CHAT_PROMPT.format(timestamp=current_timestamp)
+        # Ensure we never send empty messages
+        if not messages:
+            print(f"[MEMORY] ⚠️ No messages after trim! Adding placeholder")
+            messages = [HumanMessage(content="Continue from previous context")]
         
+        # Get context from state
+        user_address = state.get('configurable', {}).get('user_address')
+        allowed_contract = state.get('configurable', {}).get('allowed_contract')
+        
+        # Build system prompt with contract scoping
+        current_timestamp = int(time.time())
+        
+        if allowed_contract:
+            scoping_rules = CONTRACT_SCOPING_RULES.format(allowed_contract=allowed_contract)
+        else:
+            scoping_rules = ""
+        
+        # ✅ ADD THIS: Inject user context into system prompt
+        context_info = f"""
+
+**CURRENT CONTEXT (USE THESE VALUES):**
+- User's wallet address: `{user_address}`
+- Allowed contract: `{allowed_contract}`
+- Network: Avalanche Fuji Testnet
+
+**IMPORTANT:** When calling `generate_blockchain_transaction`, you MUST pass:
+```python
+generate_blockchain_transaction(
+    action_description="user's request here",
+    contract_address="{allowed_contract}",
+    user_address="{user_address}"
+)
+```
+"""
+        
+        system_content = CHAT_PROMPT.format(
+            contract_scoping_rules=scoping_rules,
+            timestamp=current_timestamp
+        ) + context_info  # ← ADD THIS
+        
+        # Check if system prompt already exists
         has_system = any(
             hasattr(msg, 'type') and msg.type == 'system' 
             for msg in messages
@@ -238,6 +313,11 @@ def create_chat_agent():
             messages.insert(0, SystemMessage(content=system_content))
         
         print(f"[MEMORY] Sending {len(messages)} messages to LLM")
+        
+        # SAFETY CHECK: Ensure at least 2 messages (system + user)
+        if len(messages) < 2:
+            print(f"[MEMORY] ⚠️ Only {len(messages)} messages, adding context message")
+            messages.append(HumanMessage(content="Continue assisting the user"))
         
         response = model.invoke(messages)
         
@@ -264,10 +344,11 @@ def create_chat_agent():
 def run_chat_agent(
     message: str, 
     user_address: str = None,
-    conversation_id: str = None
+    conversation_id: str = None,
+    allowed_contract: str = None  # NEW parameter
 ) -> dict:
     """
-    Runs the chat agent with Firestore memory
+    Runs the chat agent with Firestore memory and optional contract scoping
     
     Args:
         message: User's message
@@ -284,12 +365,16 @@ def run_chat_agent(
     print("\n" + "#"*60)
     print("CHAT AGENT STARTED")
     print(f"Conversation ID: {conversation_id}")
+    if allowed_contract:
+        print(f"🔒 Scoped to: {allowed_contract}")
     print("#"*60)
     
     # Build full message with context
     full_message = message
     if user_address:
         full_message += f"\n\n**Context:** User's wallet is {user_address}"
+    if allowed_contract:
+        full_message += f"\n**Allowed Contract:** {allowed_contract}"
     
     # Create input with just the new message
     # LangGraph will automatically load previous messages from Firestore
@@ -299,7 +384,13 @@ def run_chat_agent(
     }
     
     # Pass conversation_id as thread_id in config
-    config = {"configurable": {"thread_id": conversation_id}}
+    # NEW: Store allowed_contract in config for system prompt
+    config = {
+        "configurable": {
+            "thread_id": conversation_id,
+            "allowed_contract": allowed_contract  # NEW
+        }
+    }
     
     print(f"[MEMORY] Using Firestore with thread_id: {conversation_id}")
     
