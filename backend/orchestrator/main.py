@@ -12,6 +12,7 @@ from flask_cors import CORS
 from chat_agent import run_chat_agent
 from error_tracker import log_error, log_warning, log_metric, ErrorType
 from google.cloud import firestore
+from rate_limiter import rate_limit
 
 # --- Configuration ---
 PROJECT_ID = "avapilot" 
@@ -113,9 +114,10 @@ def metrics():
 
 
 @app.route("/chat", methods=['POST'])
+@rate_limit(window_seconds=60)  # 20 requests per minute for free tier
 def chat():
     """
-    Unified endpoint with memory + contract scoping + input validation
+    Unified endpoint with memory + contract scoping + rate limiting
     """
     # ========================================
     # INPUT VALIDATION
