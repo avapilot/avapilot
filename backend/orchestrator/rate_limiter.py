@@ -32,14 +32,27 @@ class RateLimiter:
         # Free tier API key (same for everyone during alpha)
         self.FREE_API_KEY = "avapilot_free_alpha"
         
+        # ✅ ADD: Pro keys for trusted users
+        self.PRO_API_KEYS = [
+            "avapilot_pro_alice_xyz123",
+            "avapilot_pro_bob_abc456",
+            # Add more as needed
+        ]
+        
         print(f"[RATE_LIMITER] Initialized with limits: {self.RATE_LIMITS}")
+        print(f"[RATE_LIMITER] Pro keys configured: {len(self.PRO_API_KEYS)}")
     
     def get_tier(self, api_key: str) -> str:
         """Determine user tier based on API key"""
         if api_key == self.FREE_API_KEY or not api_key:
             return "free"
         
-        # Future: Check paid API keys in database
+        # ✅ ADD: Check for pro keys
+        if api_key in self.PRO_API_KEYS:
+            print(f"[RATE_LIMITER] ✅ Pro key recognized: ***{api_key[-8:]}")
+            return "paid"  # Use "paid" tier limits
+        
+        # Unknown key = treat as free tier
         return "free"
     
     def is_allowed(self, identifier: str, tier: str, window_seconds: int) -> tuple[bool, int, int]:
