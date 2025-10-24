@@ -114,8 +114,6 @@
           addMessage('agent', `Connected: ${userAddress.substring(0,6)}...${userAddress.substring(38)}`);
           document.getElementById('messageInput').disabled = false;
           document.getElementById('sendBtn').disabled = false;
-        } else {
-          addMessage('agent', 'Please connect your wallet on the parent page first.');
         }
       }
       
@@ -220,7 +218,7 @@
     }
     
     // Initial greeting
-    addMessage('agent', 'Hi! I\'m AvaPilot. How can I help you today?');
+    addMessage('agent', 'Hi! I\'m AvaPilot. Checking your wallet connection...');
   </script>
 </body>
 </html>
