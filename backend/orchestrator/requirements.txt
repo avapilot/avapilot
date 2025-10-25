@@ -10,3 +10,4 @@ web3
 requests
 pydantic>=2.10.0
 google-cloud-firestore>=2.14.0
+google-cloud-logging>=3.5.0

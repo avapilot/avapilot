@@ -8,14 +8,14 @@
   // Get configuration from script tag
   const scriptTag = document.currentScript;
   const allowedContract = scriptTag.getAttribute('data-contract');
-  const apiKey = scriptTag.getAttribute('data-api-key');
+  const apiKey = scriptTag.getAttribute('data-api-key') || 'avapilot_free_alpha';  // ← Default to free tier
   const primaryColor = scriptTag.getAttribute('data-color') || '#667eea';
   const position = scriptTag.getAttribute('data-position') || 'bottom-right';
   
   // Auto-detect base URL
   const WIDGET_BASE_URL = scriptTag.src.includes('localhost') 
     ? 'http://localhost:8080'
-    : scriptTag.src.replace('/widget.js', '');
+    : 'https://avapilot-orchestrator-82975436299.us-central1.run.app';
   
   console.log('[AvaPilot] Base URL:', WIDGET_BASE_URL);
   
@@ -25,8 +25,10 @@
     return;
   }
   
-  if (!apiKey) {
-    console.warn('[AvaPilot] WARNING: data-api-key recommended for rate limiting');
+  if (!apiKey || apiKey === 'avapilot_free_alpha') {
+    console.log('[AvaPilot] Using free tier (20 req/min, 500 req/day)');
+  } else {
+    console.log('[AvaPilot] API Key:', '***' + apiKey.slice(-4));
   }
   
   // Create chat bubble
@@ -59,7 +61,11 @@
   iframe.id = 'avapilot-widget';
   
   // Build iframe URL with parameters
-  const iframeUrl = new URL(`${WIDGET_BASE_URL}/widget-chat.html`);
+  const WIDGET_CDN_URL = scriptTag.src.includes('localhost')
+    ? 'http://localhost:8080'
+    : 'https://storage.googleapis.com/avapilot-cdn';
+
+  const iframeUrl = new URL(`${WIDGET_CDN_URL}/widget-chat.html`);
   iframeUrl.searchParams.set('contract', allowedContract);
   iframeUrl.searchParams.set('apiKey', apiKey || '');
   iframeUrl.searchParams.set('color', primaryColor);
@@ -94,21 +100,48 @@
     if (event.source !== iframe.contentWindow) return;
     
     if (event.data.type === 'AVAPILOT_WALLET_REQUEST') {
-      // Check if MetaMask/Core wallet is available
+      // ✅ FIX: Check if parent page has wallet connection
       if (typeof window.ethereum !== 'undefined') {
+        // First check if parent page already has connection
         window.ethereum.request({ method: 'eth_accounts' })
           .then(accounts => {
-            iframe.contentWindow.postMessage({
-              type: 'AVAPILOT_WALLET_CONNECTED',
-              address: accounts[0] || null
-            }, '*');
+            if (accounts && accounts.length > 0) {
+              // Parent has connection, send to iframe
+              console.log('[AvaPilot] Found existing wallet connection:', accounts[0]);
+              iframe.contentWindow.postMessage({
+                type: 'AVAPILOT_WALLET_CONNECTED',
+                address: accounts[0]
+              }, '*');
+            } else {
+              // No connection yet - prompt user to connect
+              console.log('[AvaPilot] No wallet connected, requesting connection...');
+              return window.ethereum.request({ method: 'eth_requestAccounts' });
+            }
+          })
+          .then(accounts => {
+            if (accounts && accounts.length > 0) {
+              console.log('[AvaPilot] Wallet connected:', accounts[0]);
+              iframe.contentWindow.postMessage({
+                type: 'AVAPILOT_WALLET_CONNECTED',
+                address: accounts[0]
+              }, '*');
+            }
           })
           .catch(err => {
-            console.error('[AvaPilot] Failed to get accounts:', err);
-            iframe.contentWindow.postMessage({
-              type: 'AVAPILOT_WALLET_ERROR',
-              error: 'Failed to detect wallet'
-            }, '*');
+            if (err.code === 4001) {
+              // User rejected
+              console.log('[AvaPilot] User rejected wallet connection');
+              iframe.contentWindow.postMessage({
+                type: 'AVAPILOT_WALLET_NOT_CONNECTED',
+                error: 'Please connect your wallet to continue'
+              }, '*');
+            } else {
+              console.error('[AvaPilot] Wallet error:', err);
+              iframe.contentWindow.postMessage({
+                type: 'AVAPILOT_WALLET_ERROR',
+                error: err.message || 'Failed to detect wallet'
+              }, '*');
+            }
           });
       } else {
         iframe.contentWindow.postMessage({
@@ -117,7 +150,7 @@
         }, '*');
       }
     }
-    
+
     // Handle transaction execution request
     if (event.data.type === 'AVAPILOT_EXECUTE_TX') {
       const tx = event.data.transaction;
