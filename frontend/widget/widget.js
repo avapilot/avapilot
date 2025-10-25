@@ -15,7 +15,7 @@
   // Auto-detect base URL
   const WIDGET_BASE_URL = scriptTag.src.includes('localhost') 
     ? 'http://localhost:8080'
-    : scriptTag.src.replace('/widget.js', '');
+    : 'https://avapilot-orchestrator-82975436299.us-central1.run.app';
   
   console.log('[AvaPilot] Base URL:', WIDGET_BASE_URL);
   
@@ -61,7 +61,11 @@
   iframe.id = 'avapilot-widget';
   
   // Build iframe URL with parameters
-  const iframeUrl = new URL(`${WIDGET_BASE_URL}/widget-chat.html`);
+  const WIDGET_CDN_URL = scriptTag.src.includes('localhost')
+    ? 'http://localhost:8080'
+    : 'https://storage.googleapis.com/avapilot-cdn';
+
+  const iframeUrl = new URL(`${WIDGET_CDN_URL}/widget-chat.html`);
   iframeUrl.searchParams.set('contract', allowedContract);
   iframeUrl.searchParams.set('apiKey', apiKey || '');
   iframeUrl.searchParams.set('color', primaryColor);

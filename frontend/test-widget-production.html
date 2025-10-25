@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AvaPilot Production Widget Test</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+    .container {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 30px;
+      border-radius: 10px;
+      backdrop-filter: blur(10px);
+    }
+    h1 {
+      margin-bottom: 20px;
+    }
+    .info {
+      background: rgba(255, 255, 255, 0.2);
+      padding: 15px;
+      border-radius: 5px;
+      margin: 20px 0;
+    }
+    .success {
+      color: #4ade80;
+      font-weight: bold;
+    }
+    button {
+      background: #4ade80;
+      color: #1a1a1a;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 5px;
+      font-size: 16px;
+      cursor: pointer;
+      margin-top: 20px;
+    }
+    button:hover {
+      background: #22c55e;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🚀 AvaPilot Production Widget Test</h1>
+    
+    <div class="info">
+      <p><strong>What this tests:</strong></p>
+      <ul>
+        <li>Widget loads from CDN (not localhost)</li>
+        <li>Chat bubble appears in bottom-right corner</li>
+        <li>MetaMask connection works</li>
+        <li>Backend communication works</li>
+        <li>Contract scoping enforced</li>
+      </ul>
+    </div>
+
+    <div class="info">
+      <p><strong>Contract Address:</strong><br>
+      <code>0xc62C15AD56f54757bb074e0779aE85e54FD67861</code></p>
+      <p><strong>Network:</strong> Avalanche Fuji Testnet</p>
+    </div>
+
+    <h2>Instructions:</h2>
+    <ol>
+      <li>Look for chat bubble (💬) in bottom-right corner</li>
+      <li>Click the bubble to open chat</li>
+      <li>Connect your MetaMask wallet</li>
+      <li>Try asking: "What functions does this contract have?"</li>
+      <li>Try: "Help me call the mint function"</li>
+    </ol>
+
+    <div class="info">
+      <p class="success">✅ If you see the chat bubble, the widget loaded successfully!</p>
+    </div>
+
+    <button onclick="alert('Widget should appear in bottom-right! 👉')">
+      Where's the widget?
+    </button>
+  </div>
+
+  <!-- ✨ THE ONLY LINE CUSTOMERS NEED TO ADD ✨ -->
+  <script src="https://storage.googleapis.com/avapilot-cdn/widget.js" 
+          data-contract="0xc62C15AD56f54757bb074e0779aE85e54FD67861"
+          data-api-key="test_production_key"></script>
+</body>
+</html>
