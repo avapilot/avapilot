@@ -10,7 +10,14 @@ from langchain_core.messages import BaseMessage, ToolMessage, HumanMessage, Syst
 from langgraph.graph import StateGraph, END, MessagesState
 from langgraph.prebuilt import ToolNode
 from langchain_google_vertexai import ChatVertexAI
-from tools import get_token_address, get_contract_abi, read_contract_function, analyze_contract
+from tools import (
+    get_token_address, 
+    get_contract_abi, 
+    read_contract_function, 
+    analyze_contract,
+    explore_contract_state,  # ← ADD THIS
+    get_item_by_id           # ← ADD THIS TOO
+)
 from transaction_tool import generate_blockchain_transaction
 
 # Initialize Firestore checkpointer
@@ -205,7 +212,9 @@ def create_chat_agent():
         read_contract_function,
         get_token_address,
         get_contract_abi,
-        analyze_contract
+        analyze_contract,
+        explore_contract_state,  # ← Enhanced version
+        get_item_by_id           # ← NEW: Smart ID lookup
     ]
     
     model = ChatVertexAI(

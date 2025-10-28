@@ -531,3 +531,256 @@ def read_contract_function_impl(
         traceback.print_exc()
         print(f"{'='*60}\n")
         return {"success": False, "error": error_msg}
+
+
+@tool
+def convert_wei_to_avax(wei_value: str) -> str:
+    """
+    Converts Wei (smallest unit) to AVAX (human-readable)
+    
+    Args:
+        wei_value: Amount in Wei as string (e.g., "11000000000000000000")
+    
+    Returns:
+        JSON string with conversion result
+        
+    Example:
+        >>> convert_wei_to_avax("11000000000000000000")
+        '{"wei": "11000000000000000000", "avax": "11.0", "formatted": "11 AVAX"}'
+    """
+    try:
+        wei = int(wei_value)
+        avax = wei / 1e18
+        
+        # Format nicely
+        if avax >= 1:
+            formatted = f"{avax:.2f} AVAX"
+        elif avax >= 0.0001:
+            formatted = f"{avax:.6f} AVAX"
+        else:
+            formatted = f"{avax:.10f} AVAX"
+        
+        result = {
+            "success": True,
+            "wei": wei_value,
+            "avax": str(avax),
+            "formatted": formatted
+        }
+        
+        print(f"[WEI→AVAX] {wei_value} Wei = {formatted}")
+        return json.dumps(result)
+        
+    except Exception as e:
+        error_result = {
+            "success": False,
+            "error": str(e),
+            "wei": wei_value
+        }
+        print(f"[WEI→AVAX ERROR] {e}")
+        return json.dumps(error_result)
+
+
+
+@tool
+def explore_contract_state(contract_address: str, sample_ids: list = None) -> str:
+    """
+    Automatically discovers and reads contract state, including:
+    - Zero-parameter view functions (owner, totalSupply, etc.)
+    - Single-parameter getters with sample IDs (insurances(26), stakes(0), etc.)
+    
+    Use this to explore what data is stored in a contract.
+    
+    Args:
+        contract_address: Contract to explore
+        sample_ids: Optional list of IDs to try (e.g., [0, 1, 26] for insurances)
+        
+    Returns:
+        JSON with discovered state and available getters
+        
+    Example:
+        explore_contract_state("0xABC...", [26, 27]) 
+        → Tries insurances(26), insurances(27), stakes(26), etc.
+    """
+    print(f"[EXPLORE] Discovering state for {contract_address}")
+    if sample_ids:
+        print(f"[EXPLORE] Will try IDs: {sample_ids}")
+    
+    # Get ABI
+    abi_json = get_contract_abi_impl(contract_address)
+    if abi_json.startswith("Error"):
+        return json.dumps({"error": abi_json})
+    
+    abi = json.loads(abi_json)
+    
+    # Categorize functions
+    zero_param_funcs = []
+    single_uint_funcs = []  # Likely mapping getters
+    single_address_funcs = []  # Likely user-specific data
+    
+    for item in abi:
+        if item.get('type') != 'function':
+            continue
+        if item.get('stateMutability') not in ['view', 'pure']:
+            continue
+            
+        inputs = item.get('inputs', [])
+        func_name = item['name']
+        
+        if len(inputs) == 0:
+            zero_param_funcs.append(func_name)
+        elif len(inputs) == 1:
+            param_type = inputs[0]['type']
+            if param_type.startswith('uint'):
+                single_uint_funcs.append(func_name)
+            elif param_type == 'address':
+                single_address_funcs.append(func_name)
+    
+    print(f"[EXPLORE] Found:")
+    print(f"  - {len(zero_param_funcs)} zero-param functions")
+    print(f"  - {len(single_uint_funcs)} uint-param functions (likely mappings)")
+    print(f"  - {len(single_address_funcs)} address-param functions")
+    
+    results = {
+        "contract": contract_address,
+        "zero_param_state": {},
+        "id_based_getters": {},
+        "available_getters": {
+            "by_id": single_uint_funcs,
+            "by_address": single_address_funcs
+        }
+    }
+    
+    # 1. Call zero-parameter functions
+    for func_name in zero_param_funcs[:10]:  # Limit to avoid spam
+        try:
+            result = read_contract_function_impl(contract_address, func_name, [])
+            if result['success']:
+                results["zero_param_state"][func_name] = result['result']
+        except Exception as e:
+            print(f"[EXPLORE] {func_name}() failed: {e}")
+            continue
+    
+    # 2. If sample IDs provided, try single-uint functions
+    if sample_ids and single_uint_funcs:
+        print(f"[EXPLORE] Testing {len(single_uint_funcs)} getters with IDs {sample_ids}")
+        
+        for func_name in single_uint_funcs[:5]:  # Limit functions tested
+            results["id_based_getters"][func_name] = {}
+            
+            for id_val in sample_ids[:3]:  # Limit IDs tested per function
+                try:
+                    result = read_contract_function_impl(
+                        contract_address, 
+                        func_name, 
+                        [id_val]
+                    )
+                    if result['success']:
+                        results["id_based_getters"][func_name][str(id_val)] = result['result']
+                        print(f"[EXPLORE] ✓ {func_name}({id_val}) = {result['result']}")
+                except Exception as e:
+                    print(f"[EXPLORE] {func_name}({id_val}) failed: {e}")
+                    continue
+    
+    # 3. Add usage hints
+    results["usage_hints"] = {
+        "to_query_specific_id": f"Use read_contract_function('{contract_address}', 'FUNCTION_NAME', [ID])",
+        "available_id_getters": single_uint_funcs[:10],
+        "example": f"read_contract_function('{contract_address}', '{single_uint_funcs[0]}', [26])" if single_uint_funcs else "No ID-based getters found"
+    }
+    
+    return json.dumps(results, indent=2)
+
+@tool
+def get_item_by_id(
+    contract_address: str, 
+    item_name: str, 
+    item_id: int
+) -> str:
+    """
+    Intelligently retrieves a specific item from a contract by trying common getter patterns.
+    
+    Automatically tries multiple naming conventions:
+    - insurances(26), insurance(26), insuranceList(26), getInsurance(26)
+    - stakes(5), stake(5), stakeList(5), getStake(5)
+    
+    Use this when user asks for a specific item by ID/index.
+    
+    Args:
+        contract_address: Contract to query
+        item_name: Base name (e.g., "insurance", "stake", "contract")
+        item_id: The ID/index to retrieve
+        
+    Returns:
+        JSON with item data or list of attempted functions
+        
+    Example:
+        get_item_by_id("0xABC...", "insurance", 26)
+        → Tries insurances(26), insurance(26), etc.
+    """
+    print(f"[GET_BY_ID] Searching for {item_name} #{item_id} in {contract_address}")
+    
+    # Generate variations
+    base = item_name.lower().rstrip('s')  # Remove trailing 's' if present
+    variations = [
+        f"{base}s",           # insurances
+        base,                 # insurance  
+        f"{base}List",        # insuranceList
+        f"get{base.capitalize()}",      # getInsurance
+        f"get{base.capitalize()}s",     # getInsurances
+        f"{base}Info",        # insuranceInfo
+        f"{base}Data",        # insuranceData
+    ]
+    
+    print(f"[GET_BY_ID] Will try: {variations}")
+    
+    # Get ABI to check which functions exist
+    abi_json = get_contract_abi_impl(contract_address)
+    if abi_json.startswith("Error"):
+        return json.dumps({"error": abi_json})
+    
+    abi = json.loads(abi_json)
+    available_funcs = [
+        item['name'] for item in abi 
+        if item.get('type') == 'function' 
+        and item.get('stateMutability') in ['view', 'pure']
+        and len(item.get('inputs', [])) == 1
+        and item['inputs'][0]['type'].startswith('uint')
+    ]
+    
+    print(f"[GET_BY_ID] Available single-uint functions: {available_funcs}")
+    
+    # Try each variation
+    for func_name in variations:
+        if func_name not in available_funcs:
+            continue
+            
+        print(f"[GET_BY_ID] Trying {func_name}({item_id})...")
+        
+        try:
+            result = read_contract_function_impl(
+                contract_address,
+                func_name,
+                [item_id]
+            )
+            
+            if result['success']:
+                print(f"[GET_BY_ID] ✅ SUCCESS with {func_name}!")
+                return json.dumps({
+                    "success": True,
+                    "function_used": func_name,
+                    "id": item_id,
+                    "data": result['result']
+                }, indent=2)
+        
+        except Exception as e:
+            print(f"[GET_BY_ID] {func_name} failed: {e}")
+            continue
+    
+    # None worked - return helpful error
+    return json.dumps({
+        "success": False,
+        "error": f"Could not find getter for '{item_name}' with ID {item_id}",
+        "tried_functions": variations,
+        "available_single_uint_getters": available_funcs,
+        "suggestion": f"Try: read_contract_function('{contract_address}', 'FUNCTION_NAME', [{item_id}])"
+    }, indent=2)
