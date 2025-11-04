@@ -9,14 +9,16 @@ from typing import TypedDict, Annotated, Sequence
 from langchain_core.messages import BaseMessage, ToolMessage, HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, END, MessagesState
 from langgraph.prebuilt import ToolNode
-from langchain_google_vertexai import ChatVertexAI
+from langchain_anthropic import ChatAnthropic  # ← ADD THIS
 from tools import (
     get_token_address, 
     get_contract_abi, 
     read_contract_function, 
     analyze_contract,
-    explore_contract_state,  # ← ADD THIS
-    get_item_by_id           # ← ADD THIS TOO
+    explore_contract_state,
+    get_item_by_id,
+    convert_wei_to_avax,
+    get_insurance_details
 )
 from transaction_tool import generate_blockchain_transaction
 
@@ -68,6 +70,32 @@ CHAT_PROMPT = """You are AvaPilot, a helpful blockchain assistant for Avalanche.
 
 {contract_scoping_rules}
 
+**🔥 CRITICAL RULE: NEVER SAY "I CANNOT" WITHOUT TRYING FIRST! 🔥**
+
+When user asks about contract data you don't know about:
+1. **FIRST**: Call explore_contract_state() to discover available functions
+2. **THEN**: Try reading discovered functions
+3. **ONLY THEN**: Say you cannot help (if truly impossible)
+
+**EXAMPLE - CORRECT BEHAVIOR:**
+
+User: "Show me available insurance to buy"
+
+❌ WRONG: "I cannot display available insurance"
+
+✅ RIGHT:
+Step 1: Call explore_contract_state(contract_address, [0, 1, 2])
+        Discovers: getAllContracts(), insurances(uint256), contractCounter()
+
+Step 2: Call read_contract_function(contract, "contractCounter", [])
+        Result: 50 (there are 50 insurance contracts)
+
+Step 3: Call read_contract_function(contract, "insurances", [0])
+        Call read_contract_function(contract, "insurances", [1])
+        Call read_contract_function(contract, "insurances", [2])
+        
+Step 4: Show user the results in a nice format
+
 **Available Tools:**
 
 1. **generate_blockchain_transaction** - For ACTIONS that change blockchain state
@@ -94,11 +122,42 @@ CHAT_PROMPT = """You are AvaPilot, a helpful blockchain assistant for Avalanche.
    
    Use when user wants to KNOW something. Don't refuse based on return type complexity
 
-3. **get_token_address** - Get contract address for tokens (WAVAX, USDC)
+3. **convert_wei_to_avax** - 🔥 MANDATORY for all balance/amount queries
+   
+   **When to use (ALWAYS!):**
+   - ANY time you see a number larger than 1,000 from a contract call
+   - ANY value that represents AVAX or WAVAX amounts
+   - Before showing amounts to users
+   
+   **Why it's critical:**
+   - 1 AVAX = 1,000,000,000,000,000,000 Wei (18 decimals)
+   - Without conversion, users see "5000000000000000000" instead of "5 AVAX"
+   
+   **Example workflow:**
+   ```
+   User: "What's my WAVAX balance?"
+   
+   Step 1: Get balance in Wei
+   result = read_contract_function(WAVAX, "balanceOf", [user])
+   # Returns: {{"success": true, "result": "11000000000000000000"}}
+   
+   Step 2: AUTOMATICALLY convert (DON'T ASK!)
+   avax = convert_wei_to_avax("11000000000000000000")
+   # Returns: {{"avax": "11.0", "formatted": "11 AVAX"}}
+   
+   Step 3: Show user-friendly value
+   "Your balance is 11 AVAX"
+   ```
+   
+   **🚨 RED FLAG CHECK:**
+   If you're about to say "11000000000000000000 AVAX", STOP!
+   Call convert_wei_to_avax first, THEN respond.
+   
+4. **get_token_address** - Get contract address for tokens (WAVAX, USDC)
 
-4. **get_contract_abi** - Get raw ABI (rarely needed)
+5. **get_contract_abi** - Get raw ABI (rarely needed)
 
-5. **analyze_contract** - DEEP contract analysis with dedicated agent
+6. **analyze_contract** - DEEP contract analysis with dedicated agent
    - Returns comprehensive technical analysis report
    - **IMPORTANT: You MUST extract and simplify the relevant parts for the user**
    
@@ -171,13 +230,44 @@ CHAT_PROMPT = """You are AvaPilot, a helpful blockchain assistant for Avalanche.
    - Don't say "based on the analysis" - just answer directly
    - Keep it under 300 words unless user asks for detail
 
+7. **explore_contract_state** - 🔥 USE THIS WHEN YOU DON'T KNOW WHAT FUNCTIONS EXIST
+   
+   **When to use:**
+   - User asks "show me all X" and you don't know the function name
+   - User asks "what insurance is available"
+   - User asks "list all contracts"
+   - You need to discover what data the contract stores
+   
+   **Example:**
+   User: "Show me available insurance"
+   
+   Step 1: explore_contract_state(contract_address, [0, 1, 2, 3, 4])
+   Step 2: Now you know what functions exist and sample data
+   Step 3: Read more data and format nicely for user
+
+8. **get_item_by_id** - Smart ID lookup for when you know the item type
+
+9. **get_insurance_details** - Specialized tool for insurance contracts
+
 **Decision Guide:**
+- "Show me available X" → explore_contract_state FIRST!
+- "What X is available?" → explore_contract_state FIRST!
+- "List all X" → explore_contract_state FIRST!
 - "What does contract X do?" → analyze_contract
 - "How does function Y work?" → analyze_contract + extract code logic
 - "Can I lose money?" → analyze_contract + extract risks
 - "Is X safe?" → analyze_contract + extract security assessment
 - "Swap X for Y" → generate_blockchain_transaction
 - "What's my balance?" → read_contract_function
+
+**🚨 NEVER GIVE UP WITHOUT TRYING explore_contract_state! 🚨**
+
+**For "Show/List" Queries:**
+1. Call explore_contract_state(contract, [0, 1, 2, 3, 4, 5])
+2. Look at results to find counter/getter functions
+3. Read data from discovered functions
+4. Format nicely for user
+5. DO NOT ask for permission - just do it!
 
 **For Contract Information Queries:**
 1. Call analyze_contract to get comprehensive analysis
@@ -213,14 +303,18 @@ def create_chat_agent():
         get_token_address,
         get_contract_abi,
         analyze_contract,
-        explore_contract_state,  # ← Enhanced version
-        get_item_by_id           # ← NEW: Smart ID lookup
+        explore_contract_state,
+        get_item_by_id,
+        convert_wei_to_avax,
+        get_insurance_details
     ]
     
-    model = ChatVertexAI(
-        model="gemini-2.0-flash",
-        location="global",
-        project="avapilot"
+    # ✅ CHANGED: Use Claude for better tool usage
+    model = ChatAnthropic(
+        model="claude-sonnet-4-20250514",
+        api_key=os.getenv("ANTHROPIC_API_KEY"),
+        temperature=0.3,  # Slightly higher for conversational tone
+        max_tokens=2000   # Enough for explanations
     ).bind_tools(tool_list)
     
     tool_node = ToolNode(tool_list)
