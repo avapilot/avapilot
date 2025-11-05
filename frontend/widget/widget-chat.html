@@ -338,220 +338,248 @@
   </div>
   
   <script>
-    // Get configuration from URL
-    const urlParams = new URLSearchParams(window.location.search);
-    const allowedContract = urlParams.get('contract');
-    const apiKey = urlParams.get('apiKey');
-    const primaryColor = urlParams.get('color') || '#667eea';
-    
-    // State
-    let userAddress = null;
-    let conversationId = null;
-    
-    // Update scope badge
-    document.getElementById('scopeBadge').textContent = 
-      `🔒 ${allowedContract.substring(0,6)}...${allowedContract.substring(38)}`;
-    
-    // Request wallet info from parent
-    window.parent.postMessage({ type: 'AVAPILOT_WALLET_REQUEST' }, '*');
-    
-    // Listen for wallet info and transaction results
-    window.addEventListener('message', (e) => {
-      if (e.data.type === 'AVAPILOT_WALLET_CONNECTED') {
-        userAddress = e.data.address;
-        if (userAddress) {
-          addMessage('agent', `Connected · ${userAddress.substring(0,6)}...${userAddress.substring(38)}`);
-          document.getElementById('messageInput').disabled = false;
-          document.getElementById('sendBtn').disabled = false;
-          document.getElementById('messageInput').placeholder = 'Ask me anything...';
-        }
-      }
-      
-      if (e.data.type === 'AVAPILOT_WALLET_ERROR') {
-        addMessage('agent', `Wallet error: ${e.data.error}`);
-      }
-      
-      if (e.data.type === 'AVAPILOT_TX_SUCCESS') {
-        addTransactionHash(e.data.txHash);
-      }
-      
-      if (e.data.type === 'AVAPILOT_TX_ERROR') {
-        addMessage('agent', `Transaction failed: ${e.data.error}`);
-      }
-      
-      if (e.data.type === 'AVAPILOT_TX_BLOCKED') {
-        addMessage('agent', `Transaction blocked: ${e.data.reason}`);
-      }
-    });
-    
-    // Send message handler
-    document.getElementById('sendBtn').onclick = async () => {
-      const input = document.getElementById('messageInput');
-      const message = input.value;
-      if (!message || message.trim().length === 0) return;
-      
-      addMessage('user', message);
-      input.value = '';
-      input.disabled = true;
-      document.getElementById('sendBtn').disabled = true;
-      
-      // Show loading indicator
-      const loadingMsg = addMessage('agent', '<span class="loading"></span>Processing...');
-      
-      try {
-        const requestBody = {
-          message: message.trim(),  // ✅ Send trimmed to API
-          conversation_id: conversationId,
-          context: {
-            user_address: userAddress,
-            allowed_contract: allowedContract,
-            api_key: apiKey
-          }
-        };
-        
-        const response = await fetch('https://avapilot-orchestrator-82975436299.us-central1.run.app/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestBody)
-        });
-        
-        // Remove loading message
-        loadingMsg.remove();
-        
-        if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.payload?.message || 'Request failed');
-        }
-        
-        const data = await response.json();
-        conversationId = data.conversation_id;
-        
-        if (data.response_type === 'transaction') {
-          addMessage('agent', 'Transaction ready · Check your wallet');
-          
-          const tx = data.payload.transaction;
-          
-          if (tx.to.toLowerCase() !== allowedContract.toLowerCase()) {
-            addMessage('agent', `Security violation · Transaction blocked`);
-            return;
-          }
-          
-          window.parent.postMessage({
-            type: 'AVAPILOT_EXECUTE_TX',
-            transaction: tx
-          }, '*');
-          
-        } else {
-          addMessage('agent', data.payload.message);
-        }
-        
-      } catch (error) {
-        loadingMsg?.remove();
-        addMessage('agent', `Error: ${error.message}`);
-      } finally {
-        input.disabled = false;
+  // ========================================
+  // CONFIGURATION & AUTO-DETECTION
+  // ========================================
+  
+  // Get configuration from URL
+  const urlParams = new URLSearchParams(window.location.search);
+  const allowedContract = urlParams.get('contract');
+  const apiKey = urlParams.get('apiKey');
+  const primaryColor = urlParams.get('color') || '#667eea';
+  
+  // ✅ AUTO-DETECT: Use localhost:8080 if running locally, otherwise production
+  const BACKEND_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    ? 'http://localhost:8080'
+    : 'https://avapilot-orchestrator-82975436299.us-central1.run.app';
+  
+  console.log('[AvaPilot Chat] Initialized');
+  console.log('  Backend URL:', BACKEND_URL);
+  console.log('  Contract:', allowedContract);
+  console.log('  API Key:', apiKey ? '***' + apiKey.slice(-4) : 'none');
+  
+  // State
+  let userAddress = null;
+  let conversationId = null;
+  
+  // Update scope badge
+  document.getElementById('scopeBadge').textContent = 
+    `🔒 ${allowedContract.substring(0,6)}...${allowedContract.substring(38)}`;
+  
+  // Request wallet info from parent
+  window.parent.postMessage({ type: 'AVAPILOT_WALLET_REQUEST' }, '*');
+  
+  // ========================================
+  // MESSAGE HANDLING
+  // ========================================
+  
+  // Listen for wallet info and transaction results
+  window.addEventListener('message', (e) => {
+    if (e.data.type === 'AVAPILOT_WALLET_CONNECTED') {
+      userAddress = e.data.address;
+      if (userAddress) {
+        addMessage('agent', `Connected · ${userAddress.substring(0,6)}...${userAddress.substring(38)}`);
+        document.getElementById('messageInput').disabled = false;
         document.getElementById('sendBtn').disabled = false;
-        input.focus();
+        document.getElementById('messageInput').placeholder = 'Ask me anything...';
       }
-    };
-    
-    // Enter key support
-    document.getElementById('messageInput').addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') {
-        document.getElementById('sendBtn').click();
-      }
-    });
-    
-    // Enhanced message rendering
-    function addMessage(sender, text) {
-      const div = document.createElement('div');
-      div.className = `message ${sender}-message`;
-      
-      if (sender === 'agent') {
-        text = parseMarkdown(text);
-        div.innerHTML = text;
-      } else {
-        div.textContent = text;
-      }
-      
-      document.getElementById('messages').appendChild(div);
-      div.scrollIntoView({ behavior: 'smooth', block: 'end' });
-      return div;
     }
     
-    // Add transaction hash
-    function addTransactionHash(txHash) {
-      const container = document.createElement('div');
-      container.className = 'message agent-message';
-      
-      const successText = document.createElement('div');
-      successText.textContent = 'Transaction sent';
-      successText.style.marginBottom = '10px';
-      successText.style.fontWeight = '600';
-      
-      const hashContainer = document.createElement('div');
-      hashContainer.className = 'tx-hash-container';
-      
-      const hashText = document.createElement('div');
-      hashText.className = 'tx-hash';
-      hashText.textContent = txHash;
-      
-      const copyBtn = document.createElement('button');
-      copyBtn.className = 'copy-btn';
-      copyBtn.textContent = 'Copy';
-      copyBtn.onclick = () => {
-        navigator.clipboard.writeText(txHash).then(() => {
-          copyBtn.textContent = '✓';
-          copyBtn.classList.add('copied');
-          setTimeout(() => {
-            copyBtn.textContent = 'Copy';
-            copyBtn.classList.remove('copied');
-          }, 2000);
-        });
+    if (e.data.type === 'AVAPILOT_WALLET_ERROR') {
+      addMessage('agent', `Wallet error: ${e.data.error}`);
+    }
+    
+    if (e.data.type === 'AVAPILOT_TX_SUCCESS') {
+      addTransactionHash(e.data.txHash);
+    }
+    
+    if (e.data.type === 'AVAPILOT_TX_ERROR') {
+      addMessage('agent', `Transaction failed: ${e.data.error}`);
+    }
+    
+    if (e.data.type === 'AVAPILOT_TX_BLOCKED') {
+      addMessage('agent', `Transaction blocked: ${e.data.reason}`);
+    }
+  });
+  
+  // ========================================
+  // SEND MESSAGE HANDLER
+  // ========================================
+  
+  document.getElementById('sendBtn').onclick = async () => {
+    const input = document.getElementById('messageInput');
+    const message = input.value;
+    if (!message || message.trim().length === 0) return;
+    
+    addMessage('user', message);
+    input.value = '';
+    input.disabled = true;
+    document.getElementById('sendBtn').disabled = true;
+    
+    // Show loading indicator
+    const loadingMsg = addMessage('agent', '<span class="loading"></span>Processing...');
+    
+    try {
+      const requestBody = {
+        message: message.trim(),
+        conversation_id: conversationId,
+        context: {
+          user_address: userAddress,
+          allowed_contract: allowedContract,
+          api_key: apiKey
+        }
       };
       
-      hashContainer.appendChild(hashText);
-      hashContainer.appendChild(copyBtn);
+      console.log('[AvaPilot Chat] Sending request to:', `${BACKEND_URL}/chat`);
       
-      const viewLink = document.createElement('a');
-      viewLink.href = `https://testnet.snowtrace.io/tx/${txHash}`;
-      viewLink.target = '_blank';
-      viewLink.textContent = 'View on Explorer';
-      viewLink.style.cssText = 'color: #007aff; text-decoration: none; font-size: 14px; font-weight: 500; display: block; margin-top: 10px;';
+      // ✅ FIX: Use dynamic BACKEND_URL
+      const response = await fetch(`${BACKEND_URL}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody)
+      });
       
-      container.appendChild(successText);
-      container.appendChild(hashContainer);
-      container.appendChild(viewLink);
+      // Remove loading message
+      loadingMsg.remove();
       
-      document.getElementById('messages').appendChild(container);
-      container.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.payload?.message || 'Request failed');
+      }
+      
+      const data = await response.json();
+      conversationId = data.conversation_id;
+      
+      console.log('[AvaPilot Chat] Response type:', data.response_type);
+      
+      if (data.response_type === 'transaction') {
+        addMessage('agent', 'Transaction ready · Check your wallet');
+        
+        const tx = data.payload.transaction;
+        
+        if (tx.to.toLowerCase() !== allowedContract.toLowerCase()) {
+          addMessage('agent', `Security violation · Transaction blocked`);
+          return;
+        }
+        
+        window.parent.postMessage({
+          type: 'AVAPILOT_EXECUTE_TX',
+          transaction: tx
+        }, '*');
+        
+      } else {
+        addMessage('agent', data.payload.message);
+      }
+      
+    } catch (error) {
+      console.error('[AvaPilot Chat] Error:', error);
+      loadingMsg?.remove();
+      addMessage('agent', `Error: ${error.message}`);
+    } finally {
+      input.disabled = false;
+      document.getElementById('sendBtn').disabled = false;
+      input.focus();
+    }
+  };
+  
+  // Enter key support
+  document.getElementById('messageInput').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+      document.getElementById('sendBtn').click();
+    }
+  });
+  
+  // ========================================
+  // UI FUNCTIONS
+  // ========================================
+  
+  function addMessage(sender, text) {
+    const div = document.createElement('div');
+    div.className = `message ${sender}-message`;
+    
+    if (sender === 'agent') {
+      text = parseMarkdown(text);
+      div.innerHTML = text;
+    } else {
+      div.textContent = text;
     }
     
-    // Simple markdown parser
-    function parseMarkdown(text) {
-      // Code blocks
-      text = text.replace(/```(\w+)?\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
-      
-      // Inline code
-      text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
-      
-      // Bold
-      text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-      
-      // Italic
-      text = text.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-      
-      // Links
-      text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
-      
-      // Line breaks
-      text = text.replace(/\n/g, '<br>');
-      
-      return text;
-    }
+    document.getElementById('messages').appendChild(div);
+    div.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    return div;
+  }
+  
+  function addTransactionHash(txHash) {
+    const container = document.createElement('div');
+    container.className = 'message agent-message';
     
-    // Initial greeting
-    addMessage('agent', 'Connecting to your wallet...');
+    const successText = document.createElement('div');
+    successText.textContent = 'Transaction sent';
+    successText.style.marginBottom = '10px';
+    successText.style.fontWeight = '600';
+    
+    const hashContainer = document.createElement('div');
+    hashContainer.className = 'tx-hash-container';
+    
+    const hashText = document.createElement('div');
+    hashText.className = 'tx-hash';
+    hashText.textContent = txHash;
+    
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'copy-btn';
+    copyBtn.textContent = 'Copy';
+    copyBtn.onclick = () => {
+      navigator.clipboard.writeText(txHash).then(() => {
+        copyBtn.textContent = '✓';
+        copyBtn.classList.add('copied');
+        setTimeout(() => {
+          copyBtn.textContent = 'Copy';
+          copyBtn.classList.remove('copied');
+        }, 2000);
+      });
+    };
+    
+    hashContainer.appendChild(hashText);
+    hashContainer.appendChild(copyBtn);
+    
+    const viewLink = document.createElement('a');
+    viewLink.href = `https://testnet.snowtrace.io/tx/${txHash}`;
+    viewLink.target = '_blank';
+    viewLink.textContent = 'View on Explorer';
+    viewLink.style.cssText = 'color: #007aff; text-decoration: none; font-size: 14px; font-weight: 500; display: block; margin-top: 10px;';
+    
+    container.appendChild(successText);
+    container.appendChild(hashContainer);
+    container.appendChild(viewLink);
+    
+    document.getElementById('messages').appendChild(container);
+    container.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }
+  
+  function parseMarkdown(text) {
+    // Code blocks
+    text = text.replace(/```(\w+)?\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+    
+    // Inline code
+    text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+    
+    // Bold
+    text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    
+    // Italic
+    text = text.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    
+    // Links
+    text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+    
+    // Line breaks
+    text = text.replace(/\n/g, '<br>');
+    
+    return text;
+  }
+  
+  // Initial greeting
+  addMessage('agent', 'Connecting to your wallet...');
   </script>
 </body>
 </html>

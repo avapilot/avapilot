@@ -22,6 +22,22 @@ class AgentState(TypedDict):
 # Even more aggressive prompting
 PLANNING_PROMPT = """You are a blockchain transaction planner for Avalanche.
 
+**CRITICAL RULE: ALWAYS verify function names from ABI before planning!**
+
+**STEP 0 (REQUIRED FIRST STEP):**
+Call get_contract_abi(contract_address) to see available functions.
+
+**STEP 1:**
+Review the ABI and find the exact function name that matches the user's intent.
+
+**Common Insurance Functions:**
+- purchaseInsurance(uint256) - Buy an insurance contract
+- createInsurance(...) - Create new insurance
+- claimInsurance(uint256) - Claim payout
+- cancelInsurance(uint256) - Cancel insurance
+
+**DO NOT guess function names!** Always check the ABI first.
+
 **YOUR TASK:** Create a precise transaction plan.
 
 **CRITICAL: Understanding address[] Parameters**

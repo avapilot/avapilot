@@ -190,24 +190,36 @@ def chat():
                 "error": "user_address contains invalid characters"
             }), 400
     
-    # 4. Validate allowed_contract
+    # 4. Validate allowed_contract (can be string or list)
     allowed_contract = context.get("allowed_contract")
+    allowed_contracts = []  # Normalized list
+
     if allowed_contract:
-        if not isinstance(allowed_contract, str):
-            return jsonify({"error": "allowed_contract must be a string"}), 400
+        # Support both single string and array
+        if isinstance(allowed_contract, str):
+            allowed_contracts = [allowed_contract]
+        elif isinstance(allowed_contract, list):
+            allowed_contracts = allowed_contract
+        else:
+            return jsonify({"error": "allowed_contract must be string or array"}), 400
         
-        if not allowed_contract.startswith('0x') or len(allowed_contract) != 42:
-            return jsonify({
-                "error": "invalid allowed_contract format",
-                "expected": "0x + 40 hex characters"
-            }), 400
-        
-        try:
-            int(allowed_contract[2:], 16)
-        except ValueError:
-            return jsonify({
-                "error": "allowed_contract contains invalid characters"
-            }), 400
+        # Validate each contract address
+        for contract in allowed_contracts:
+            if not isinstance(contract, str):
+                return jsonify({"error": "all contract addresses must be strings"}), 400
+            
+            if not contract.startswith('0x') or len(contract) != 42:
+                return jsonify({
+                    "error": f"invalid contract format: {contract}",
+                    "expected": "0x + 40 hex characters"
+                }), 400
+            
+            try:
+                int(contract[2:], 16)
+            except ValueError:
+                return jsonify({
+                    "error": f"contract contains invalid characters: {contract}"
+                }), 400
     
     # 5. Validate API key
     api_key = context.get("api_key")
@@ -248,8 +260,8 @@ def chat():
     print(f"\n{'#'*60}")
     print(f"# REQUEST: {message[:100]}{'...' if len(message) > 100 else ''}")
     print(f"# Conversation: {conversation_id}")
-    if allowed_contract:
-        print(f"# Scoped to: {allowed_contract}")
+    if allowed_contracts:
+        print(f"# Scoped to: {allowed_contracts}")
     if api_key:
         print(f"# API Key: ***{api_key[-4:] if len(api_key) >= 4 else '***'}")
     print(f"{'#'*60}")
@@ -260,7 +272,7 @@ def chat():
         1,
         context={
             "conversation_id": conversation_id,
-            "has_contract_scope": bool(allowed_contract),
+            "has_contract_scope": bool(allowed_contracts),
             "has_api_key": bool(api_key)
         }
     )
@@ -271,7 +283,7 @@ def chat():
             message=message,
             user_address=user_address,
             conversation_id=conversation_id,
-            allowed_contract=allowed_contract
+            allowed_contract=allowed_contracts
         )
     except Exception as e:
         log_error(
@@ -281,7 +293,7 @@ def chat():
                 "conversation_id": conversation_id,
                 "message_preview": message[:100],
                 "user_address": user_address,
-                "allowed_contract": allowed_contract
+                "allowed_contract": allowed_contracts
             },
             exception=e
         )
@@ -295,13 +307,13 @@ def chat():
     if result["type"] == "transaction":
         tx_target = result["transaction"]["to"].lower()
         
-        if allowed_contract and tx_target != allowed_contract.lower():
-            print(f"[SECURITY] 🚨 Transaction blocked: {tx_target} != {allowed_contract}")
+        if allowed_contracts and tx_target not in [c.lower() for c in allowed_contracts]:
+            print(f"[SECURITY] 🚨 Transaction blocked: {tx_target} not in {allowed_contracts}")
             return jsonify({
                 "conversation_id": conversation_id,
                 "response_type": "error",
                 "payload": {
-                    "message": f"🚨 Security violation: Transaction targets {tx_target} but widget is scoped to {allowed_contract}"
+                    "message": f"🚨 Security violation: Transaction targets {tx_target} but widget is scoped to {allowed_contracts}"
                 }
             }), 403
     

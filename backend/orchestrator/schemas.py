@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Literal, Optional
+from typing import List, Literal, Optional, Union
 
 class Transaction(BaseModel):
     """Blockchain transaction object"""
@@ -38,14 +38,29 @@ class TransactionResult(BaseModel):
         }
 
 class TransactionPlan(BaseModel):
-    """What the LLM outputs - just the plan, NOT the transaction"""
-    function_name: str = Field(description="Function to call from ABI")
-    function_args: list = Field(description="Arguments for the function")
-    value_in_avax: float = Field(description="AVAX to send")
-    contract_address: str = Field(description="Target contract")
-    reasoning: str = Field(description="Why this approach was chosen")
+    """
+    Structured output for transaction planning
+    """
+    function_name: str = Field(
+        description="Exact function name from contract ABI"
+    )
+    function_args: List[Union[int, str, bool, List[str]]] = Field(
+        description="Function arguments matching ABI signature exactly. Use lists for array parameters."
+    )
+    value_in_avax: float = Field(
+        default=0.0,
+        description="Amount of AVAX to send with transaction (0.0 for non-payable)"
+    )
+    contract_address: str = Field(
+        description="Target contract address"
+    )
+    reasoning: str = Field(
+        description="Brief explanation of what this transaction does"
+    )
     
     class Config:
+        # ✅ ADD: Allow arbitrary types (fixes Gemini compatibility)
+        arbitrary_types_allowed = True
         json_schema_extra = {
             "example": {
                 "function_name": "swapExactAVAXForTokens",
