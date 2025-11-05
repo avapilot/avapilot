@@ -372,7 +372,8 @@ def create_chat_agent():
     
     def should_continue(state):
         iteration_count = state.get('iteration_count', 0)
-        if iteration_count > 10:
+        if iteration_count > 15:  # ← CHANGED FROM 10
+            print(f"⚠️ Hit iteration limit ({iteration_count}). Stopping.")  # ← ADD THIS
             return END
         
         messages = state['messages']
@@ -388,9 +389,9 @@ def create_chat_agent():
         messages = list(state['messages'])
         print(f"[MEMORY] Loaded {len(messages)} messages from Firestore")
         
-        # ✅ FIXED: Simple trimming to last 20 messages
-        if len(messages) > 20:
-            print(f"[MEMORY] Trimming {len(messages)} → 20 messages")
+        # ✅ INCREASED: Trim to last 50 messages (was 20)
+        if len(messages) > 50:  # ← CHANGED FROM 20
+            print(f"[MEMORY] Trimming {len(messages)} → 50 messages")  # ← CHANGED
             
             # Find the last HumanMessage to keep context
             last_human_idx = None
@@ -399,14 +400,14 @@ def create_chat_agent():
                     last_human_idx = i
                     break
             
-            if last_human_idx is not None and last_human_idx > len(messages) - 20:
+            if last_human_idx is not None and last_human_idx > len(messages) - 50:  # ← CHANGED
                 # Keep from last human message onwards
                 print(f"[MEMORY] Keeping messages from last human message (index {last_human_idx})")
                 messages = messages[last_human_idx:]
             else:
-                # Fallback: just take last 20 messages
-                print(f"[MEMORY] Taking last 20 messages")
-                messages = messages[-20:]
+                # Fallback: just take last 50 messages  # ← CHANGED
+                print(f"[MEMORY] Taking last 50 messages")  # ← CHANGED
+                messages = messages[-50:]  # ← CHANGED
             
             print(f"[MEMORY] After trim: {len(messages)} messages")
         
