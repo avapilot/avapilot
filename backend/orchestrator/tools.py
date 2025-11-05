@@ -515,15 +515,51 @@ def read_contract_function_impl(
         print(f"  ✓✓✓ SUCCESS")
         print(f"    Result type: {type(result).__name__}")
         print(f"    Result value: {result}")
-        print(f"{'='*60}\n")
         
-        # Serialize result
-        if isinstance(result, (list, tuple)):
-            serialized = [str(item) for item in result]
+        # ✅ NEW: Label the results using ABI output names
+        outputs = function_abi.get('outputs', [])
+        
+        if isinstance(result, (list, tuple)) and len(outputs) > 1:
+            # Multiple return values - create labeled dictionary
+            labeled_result = {}
+            for i, (value, output_spec) in enumerate(zip(result, outputs)):
+                field_name = output_spec.get('name', f'output_{i}')
+                field_type = output_spec.get('type', 'unknown')
+                
+                # Convert to string for serialization
+                str_value = str(value)
+                labeled_result[field_name] = {
+                    "value": str_value,
+                    "type": field_type
+                }
+                
+                # Add Wei conversion hint for large uint256 values
+                if field_type.startswith('uint') and isinstance(value, int) and value > 1000000000000000:
+                    labeled_result[field_name]["wei_hint"] = "⚠️ Large number - likely Wei. Call convert_wei_to_avax()"
+            
+            print(f"    Labeled result: {labeled_result}")
+            print(f"{'='*60}\n")
+            
+            return {
+                "success": True,
+                "result": labeled_result,
+                "raw_values": [str(v) for v in result],
+                "abi_outputs": outputs
+            }
         else:
+            # Single return value
             serialized = str(result)
-        
-        return {"success": True, "result": serialized}
+            
+            response = {"success": True, "result": serialized}
+            
+            # Add hint for likely Wei values
+            if isinstance(result, int) and result > 1000000000000000:
+                response["conversion_hint"] = "⚠️ Large number detected. Call convert_wei_to_avax() if this represents AVAX!"
+            
+            print(f"    Serialized result: {serialized}")
+            print(f"{'='*60}\n")
+            
+            return response
         
     except Exception as e:
         error_msg = f"Error reading contract: {str(e)}"
@@ -579,6 +615,70 @@ def convert_wei_to_avax(wei_value: str) -> str:
         print(f"[WEI→AVAX ERROR] {e}")
         return json.dumps(error_result)
 
+
+@tool
+def get_insurance_details(contract_address: str, insurance_id: int) -> str:
+    """
+    Gets human-readable details for a specific insurance contract.
+    Automatically handles Wei conversion and proper field interpretation.
+    
+    Args:
+        contract_address: Insurance contract address
+        insurance_id: Insurance ID number
+        
+    Returns:
+        JSON with formatted insurance details
+    """
+    print(f"[INSURANCE] Getting details for insurance #{insurance_id}")
+    
+    # Get raw data
+    result = read_contract_function_impl(contract_address, "insurances", [insurance_id])
+    
+    if not result.get('success'):
+        return json.dumps({"error": result.get('error', 'Failed to read contract')})
+    
+    raw_data = result.get('result', {})
+    
+    # Parse insurance data with proper field understanding
+    try:
+        # Get labeled fields
+        trigger_price_wei = raw_data.get('triggerPrice', {}).get('value', '0')
+        reserve_amount_wei = raw_data.get('reserveAmount', {}).get('value', '0')
+        insurance_fee_wei = raw_data.get('insuranceFee', {}).get('value', '0')
+        
+        # Convert Wei to AVAX for AVAX amounts
+        reserve_avax = int(reserve_amount_wei) / 1e18
+        fee_avax = int(insurance_fee_wei) / 1e18
+        
+        # triggerPrice might be in USD (scaled) - check if it makes sense
+        trigger_value = int(trigger_price_wei)
+        if trigger_value > 1e15:  # If > 0.001 AVAX worth, probably USD scaled
+            trigger_usd = trigger_value / 1e18
+            trigger_display = f"${trigger_usd:.2f} USD"
+        else:
+            trigger_display = f"{trigger_value} (raw value)"
+        
+        insurance_details = {
+            "insurance_id": insurance_id,
+            "trigger_condition": trigger_display,
+            "payout_amount": f"{reserve_avax:.6f} AVAX",
+            "premium_cost": f"{fee_avax:.6f} AVAX",
+            "seller": raw_data.get('seller', {}).get('value', 'N/A'),
+            "buyer": raw_data.get('buyer', {}).get('value', 'N/A'),
+            "active": raw_data.get('active', {}).get('value', False),
+            "triggered": raw_data.get('triggered', {}).get('value', False),
+            "summary": f"Pays {reserve_avax:.6f} AVAX if price reaches {trigger_display}. Premium: {fee_avax:.6f} AVAX"
+        }
+        
+        print(f"[INSURANCE] ✓ Parsed: {insurance_details['summary']}")
+        return json.dumps(insurance_details, indent=2)
+        
+    except Exception as e:
+        print(f"[INSURANCE] Parse error: {e}")
+        return json.dumps({
+            "error": f"Failed to parse insurance data: {e}",
+            "raw_data": raw_data
+        })
 
 
 @tool
