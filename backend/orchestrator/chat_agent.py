@@ -9,7 +9,11 @@ from typing import TypedDict, Annotated, Sequence
 from langchain_core.messages import BaseMessage, ToolMessage, HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, END, MessagesState
 from langgraph.prebuilt import ToolNode
-from langchain_anthropic import ChatAnthropic  # ← ADD THIS
+from langchain_google_vertexai import ChatVertexAI
+from langchain_openai import ChatOpenAI
+from google.auth import default
+from google.auth.transport.requests import Request
+
 from tools import (
     get_token_address, 
     get_contract_abi, 
@@ -295,7 +299,7 @@ Current timestamp: {timestamp}
 
 
 def create_chat_agent():
-    """Creates the chat agent with Firestore memory"""
+    """Creates the chat agent with Firestore memory using Vertex AI"""
     
     tool_list = [
         generate_blockchain_transaction,
@@ -309,13 +313,54 @@ def create_chat_agent():
         get_insurance_details
     ]
     
-    # ✅ CHANGED: Use Claude for better tool usage
-    model = ChatAnthropic(
-        model="claude-sonnet-4-20250514",
-        api_key=os.getenv("ANTHROPIC_API_KEY"),
-        temperature=0.3,  # Slightly higher for conversational tone
-        max_tokens=2000   # Enough for explanations
+    # ✅ STEP 1: Set up Vertex AI endpoint
+    project_id = os.getenv("GCP_PROJECT", "avapilot")
+    region = "global"  # Qwen uses global endpoint
+    base_url = f"https://aiplatform.googleapis.com/v1/projects/{project_id}/locations/{region}/endpoints/openapi"
+    
+    # ✅ STEP 2: Get Google Cloud credentials with correct scopes
+    credentials, _ = default(scopes=['https://www.googleapis.com/auth/cloud-platform'])
+    
+    # If using service account, specify scopes explicitly
+    if hasattr(credentials, '_scopes'):
+        credentials = credentials.with_scopes(['https://www.googleapis.com/auth/cloud-platform'])
+    
+    credentials.refresh(Request())
+    
+    # ✅ STEP 3: Create model with GCP credentials
+    model = ChatOpenAI(
+        base_url=base_url,
+        api_key=credentials.token,  # Use GCP access token
+        model="openai/gpt-oss-120b-maas",
+        temperature=0.3,
+        
     ).bind_tools(tool_list)
+    
+    # Alternative options:
+    
+    # Option 2: Mistral Medium 3
+    # region = "europe-west4"
+    # base_url = f"https://aiplatform.googleapis.com/v1/projects/{project_id}/locations/{region}/endpoints/openapi"
+    # credentials, _ = default(scopes=['https://www.googleapis.com/auth/cloud-platform'])
+    # if hasattr(credentials, '_scopes'):
+    #     credentials = credentials.with_scopes(['https://www.googleapis.com/auth/cloud-platform'])
+    # credentials.refresh(Request())
+    # model = ChatOpenAI(
+    #     base_url=base_url,
+    #     api_key=credentials.token,
+    #     model="mistralai/mistral-medium-3@001",
+    #     temperature=0.3,
+    #     max_tokens=2000,
+    # ).bind_tools(tool_list)
+    
+    # Option 3: Gemini 2.0 Flash (RECOMMENDED - simpler, no manual token management)
+    # model = ChatVertexAI(
+    #     model="gemini-2.0-flash-exp",
+    #     project=os.getenv("GCP_PROJECT", "avapilot"),
+    #     location="us-central1",
+    #     temperature=0.3,
+    #     max_tokens=8192
+    # ).bind_tools(tool_list)
     
     tool_node = ToolNode(tool_list)
     
