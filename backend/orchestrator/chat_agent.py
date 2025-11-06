@@ -315,25 +315,21 @@ def create_chat_agent():
     
     # ✅ STEP 1: Set up Vertex AI endpoint
     project_id = os.getenv("GCP_PROJECT", "avapilot")
-    region = "global"  # Qwen uses global endpoint
-    base_url = f"https://aiplatform.googleapis.com/v1/projects/{project_id}/locations/{region}/endpoints/openapi"
+    region = "us-south1"
+    base_url = f"https://us-south1-aiplatform.googleapis.com/v1/projects/{project_id}/locations/{region}/endpoints/openapi"
     
-    # ✅ STEP 2: Get Google Cloud credentials with correct scopes
+    # ✅ STEP 2: Get Google Cloud credentials - SIMPLIFIED
     credentials, _ = default(scopes=['https://www.googleapis.com/auth/cloud-platform'])
     
-    # If using service account, specify scopes explicitly
-    if hasattr(credentials, '_scopes'):
-        credentials = credentials.with_scopes(['https://www.googleapis.com/auth/cloud-platform'])
-    
+    # Refresh to get token
     credentials.refresh(Request())
     
     # ✅ STEP 3: Create model with GCP credentials
     model = ChatOpenAI(
         base_url=base_url,
-        api_key=credentials.token,  # Use GCP access token
-        model="openai/gpt-oss-120b-maas",
+        api_key=credentials.token,
+        model="qwen/qwen3-235b-a22b-instruct-2507-maas",
         temperature=0.3,
-        
     ).bind_tools(tool_list)
     
     # Alternative options:
