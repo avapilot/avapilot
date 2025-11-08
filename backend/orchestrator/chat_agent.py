@@ -313,50 +313,79 @@ def create_chat_agent():
         get_insurance_details
     ]
     
-    # ✅ STEP 1: Set up Vertex AI endpoint
+    # ========================================
+    # MODEL CONFIGURATION
+    # ========================================
+    # Choose model via environment variable: LLM_MODEL=openai|qwen|gemini
+    # Default: gemini (most reliable, no token management needed)
+    
+    model_choice = os.getenv("LLM_MODEL", "openai")
     project_id = os.getenv("GCP_PROJECT", "avapilot")
-    region = "us-south1"
-    base_url = f"https://us-south1-aiplatform.googleapis.com/v1/projects/{project_id}/locations/{region}/endpoints/openapi"
     
-    # ✅ STEP 2: Get Google Cloud credentials - SIMPLIFIED
-    credentials, _ = default(scopes=['https://www.googleapis.com/auth/cloud-platform'])
+    # ========================================
+    # OPTION 1: OpenAI GPT (GPT-OSS-120B)
+    # ========================================
+    # ENDPOINT: aiplatform.googleapis.com
+    # REGION: global
+    # MODEL: openai/gpt-oss-120b-maas
     
-    # Refresh to get token
-    credentials.refresh(Request())
+    if model_choice == "openai":
+        region = "global"
+        base_url = f"https://aiplatform.googleapis.com/v1/projects/{project_id}/locations/{region}/endpoints/openapi"
+        
+        credentials, _ = default(scopes=['https://www.googleapis.com/auth/cloud-platform'])
+        credentials.refresh(Request())
+        
+        model = ChatOpenAI(
+            base_url=base_url,
+            api_key=credentials.token,
+            model="openai/gpt-oss-120b-maas",
+            temperature=0.3,
+        ).bind_tools(tool_list)
+        
+        print(f"[MODEL] Using OpenAI GPT-OSS-120B (region: {region})")
     
-    # ✅ STEP 3: Create model with GCP credentials
-    model = ChatOpenAI(
-        base_url=base_url,
-        api_key=credentials.token,
-        model="qwen/qwen3-235b-a22b-instruct-2507-maas",
-        temperature=0.3,
-    ).bind_tools(tool_list)
+    # ========================================
+    # OPTION 2: Qwen 3 (235B Instruct)
+    # ========================================
+    # ENDPOINT: us-south1-aiplatform.googleapis.com
+    # REGION: us-south1
+    # MODEL: qwen/qwen3-235b-a22b-instruct-2507-maas
     
-    # Alternative options:
+    elif model_choice == "qwen":
+        region = "us-south1"
+        base_url = f"https://us-south1-aiplatform.googleapis.com/v1/projects/{project_id}/locations/{region}/endpoints/openapi"
+        
+        credentials, _ = default(scopes=['https://www.googleapis.com/auth/cloud-platform'])
+        credentials.refresh(Request())
+        
+        model = ChatOpenAI(
+            base_url=base_url,
+            api_key=credentials.token,
+            model="qwen/qwen3-235b-a22b-instruct-2507-maas",
+            temperature=0.3,
+        ).bind_tools(tool_list)
+        
+        print(f"[MODEL] Using Qwen 3 235B (region: {region})")
     
-    # Option 2: Mistral Medium 3
-    # region = "europe-west4"
-    # base_url = f"https://aiplatform.googleapis.com/v1/projects/{project_id}/locations/{region}/endpoints/openapi"
-    # credentials, _ = default(scopes=['https://www.googleapis.com/auth/cloud-platform'])
-    # if hasattr(credentials, '_scopes'):
-    #     credentials = credentials.with_scopes(['https://www.googleapis.com/auth/cloud-platform'])
-    # credentials.refresh(Request())
-    # model = ChatOpenAI(
-    #     base_url=base_url,
-    #     api_key=credentials.token,
-    #     model="mistralai/mistral-medium-3@001",
-    #     temperature=0.3,
-    #     max_tokens=2000,
-    # ).bind_tools(tool_list)
+    # ========================================
+    # OPTION 3: Gemini 2.0 Flash (RECOMMENDED)
+    # ========================================
+    # ✅ Simplest setup - no manual token management
+    # ✅ Fastest response time
+    # ✅ Longest context window (1M tokens)
+    # ✅ Most cost-effective
     
-    # Option 3: Gemini 2.0 Flash (RECOMMENDED - simpler, no manual token management)
-    # model = ChatVertexAI(
-    #     model="gemini-2.0-flash-exp",
-    #     project=os.getenv("GCP_PROJECT", "avapilot"),
-    #     location="us-central1",
-    #     temperature=0.3,
-    #     max_tokens=8192
-    # ).bind_tools(tool_list)
+    else:  # gemini (default)
+        model = ChatVertexAI(
+            model="gemini-2.5-flash",
+            project=project_id,
+            location="global",
+            temperature=0.3,
+            max_tokens=8192
+        ).bind_tools(tool_list)
+        
+        print(f"[MODEL] Using Gemini 2.5 Flash (recommended)")
     
     tool_node = ToolNode(tool_list)
     
