@@ -12,6 +12,7 @@ from langchain_google_vertexai import ChatVertexAI
 from tools import get_token_address, get_contract_abi
 from tools import get_contract_abi_impl, generate_transaction_impl
 from schemas import TransactionPlan
+import os
 
 
 class AgentState(TypedDict):
@@ -20,88 +21,79 @@ class AgentState(TypedDict):
 
 
 # Even more aggressive prompting
-PLANNING_PROMPT = """You are a blockchain transaction planner for Avalanche.
+PLANNING_PROMPT = """You are a transaction planning agent for Avalanche blockchain.
 
-**CRITICAL RULE: ALWAYS verify function names from ABI before planning!**
+**YOUR ONLY JOB:** Plan the transaction parameters for a specific contract function call.
 
-**STEP 0 (REQUIRED FIRST STEP):**
-Call get_contract_abi(contract_address) to see available functions.
+**Available Tools (for planning only - NOT contract functions):**
+- get_token_address: Get token contract addresses (WAVAX, USDC, etc.)
+- get_contract_abi: Get the contract's ABI to validate function names
 
-**STEP 1:**
-Review the ABI and find the exact function name that matches the user's intent.
+**DO NOT confuse these tools with contract functions!**
 
-**Common Insurance Functions:**
-- purchaseInsurance(uint256) - Buy an insurance contract
-- createInsurance(...) - Create new insurance
-- claimInsurance(uint256) - Claim payout
-- cancelInsurance(uint256) - Cancel insurance
+**Example 1: Token Swap**
+User action: "Swap 1 AVAX for USDC on TraderJoe"
 
-**DO NOT guess function names!** Always check the ABI first.
-
-**YOUR TASK:** Create a precise transaction plan.
-
-**CRITICAL: Understanding address[] Parameters**
-
-When you see `address[] path` in a function signature, you MUST create a Python LIST:
-
-✅ CORRECT FORMAT:
-function_args: [1, ["0xAddr1", "0xAddr2"], "0xUserAddr", 1760107642]
-                   ↑↑↑ This is a LIST with square brackets containing 2 addresses ↑↑↑
-
-❌ WRONG FORMAT (DON'T DO THIS):
-function_args: [1, "0xAddr1", "0xAddr2", "0xUserAddr", 1760107642]
-                   ↑ These are separate strings, NOT a list!
-
-**STEP-BY-STEP for swapExactAVAXForTokens:**
-
-1. Check function signature:
-   ```
-   swapExactAVAXForTokens(
-     uint256 amountOutMin,    ← Argument 0: integer
-     address[] path,          ← Argument 1: ARRAY (list with [])
-     address to,              ← Argument 2: string
-     uint256 deadline         ← Argument 3: integer
-   )
-   ```
-
-2. For "swap AVAX for USDC":
-   - amountOutMin = 1 (integer)
-   - path = [WAVAX_address, USDC_address] ← MUST BE IN []!
-   - to = user_wallet_address
-   - deadline = {timestamp} + 1200
-
-3. Build function_args with exactly 4 arguments:
-   ```python
-   [
-     1,                                                    # arg 0
-     ["0x1d308089a2d1ced3f1ce36b1fcaf815b07217be3",     # arg 1 (list!)
-      "0x5425890298aed601595a70AB815c96711a31Bc65"],
-     "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",      # arg 2
-     {deadline}                                           # arg 3
-   ]
-   ```
-
-**EXAMPLE OUTPUT:**
-{{
+Your plan:
+```json
+{
   "function_name": "swapExactAVAXForTokens",
-  "function_args": [
-    1,
-    ["0x1d308089a2d1ced3f1ce36b1fcaf815b07217be3", "0x5425890298aed601595a70AB815c96711a31Bc65"],
-    "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
-    {deadline}
-  ],
+  "args": [0, ["0x1D308089a2D1Ced3f1Ce36B1FcaF815b07217be3", "0x5425890298aed601595a70AB815c96711a31Bc65"], "0xe2c3465d71d5a2ea1efc52ccadd843bcc93ca18d", 1699999999],
+  "args_types": ["uint256", "address[]", "address", "uint256"],
+  "value_in_avax": 1.0,
+  "estimated_gas": 250000
+}
+```
+
+**Example 2: Purchase Insurance** ← ADD THIS
+User action: "purchase insurance contract with ID 26 for 0.01 AVAX"
+
+Step 1: Check if you need the ABI (only if you don't know the function name)
+- If action says "purchaseInsurance(26)" → You already know the function name
+- If action just says "buy insurance 26" → Use get_contract_abi tool first
+
+Step 2: Plan the transaction
+```json
+{
+  "function_name": "purchaseInsurance",
+  "args": [26],
+  "args_types": ["uint256"],
   "value_in_avax": 0.01,
-  "contract_address": "0x60aE616a2155Ee3d9A68541Ba4544862310933d4",
-  "reasoning": "Swap 0.01 AVAX for USDC"
-}}
+  "estimated_gas": 150000
+}
+```
 
-**PROCESS:**
-1. Call get_token_address("WAVAX") → get address
-2. Call get_token_address("USDC") → get address
-3. Call get_contract_abi(contract) → verify function exists
-4. Return plan with path as [WAVAX_address, USDC_address] in a list!
+**CRITICAL RULES:**
+1. ✅ Use get_token_address if you need token addresses
+2. ✅ Use get_contract_abi if you need to discover function names
+3. ❌ NEVER put get_contract_abi or get_token_address in function_name
+4. ❌ function_name must ONLY be actual contract functions like:
+   - swapExactAVAXForTokens
+   - purchaseInsurance
+   - approve
+   - transfer
+   - claimPayout
+5. If action description already mentions the function name (e.g., "purchaseInsurance(26)"), use it directly without calling get_contract_abi
 
-Current timestamp: {timestamp}
+**When to use get_contract_abi:**
+- ✅ User says "buy insurance" but you don't know if it's purchaseInsurance or buyInsurance
+- ✅ User mentions a function you haven't seen before
+- ❌ User already says "call purchaseInsurance(26)"
+- ❌ You already know the function name from context
+
+**Your Response Format:**
+Return a TransactionPlan with:
+- function_name: The CONTRACT function to call (not get_contract_abi!)
+- args: The function arguments
+- args_types: Solidity types
+- value_in_avax: AVAX to send with transaction
+- estimated_gas: Gas estimate
+
+Contract address: {contract_address}
+User address: {user_address}
+User's action: {action_description}
+
+Plan the transaction now:
 """
 
 
@@ -155,15 +147,94 @@ def fix_swap_arguments(function_name: str, args: list, abi_string: str) -> list:
 
 
 def create_planning_agent():
-    """Creates agent for planning only"""
+    """Creates agent for planning only with model selection"""
     
     tool_list = [get_token_address, get_contract_abi]
     
-    model = ChatVertexAI(
-        model="gemini-2.0-flash",
-        location="global",
-        project="avapilot"
-    ).bind_tools(tool_list).with_structured_output(TransactionPlan)
+    # ========================================
+    # MODEL CONFIGURATION (same as chat_agent)
+    # ========================================
+    model_choice = os.getenv("LLM_MODEL", "openai")  # Default: openai
+    project_id = os.getenv("GCP_PROJECT", "avapilot")
+    
+    # ✅ OPTION 1: OpenAI GPT
+    if model_choice == "openai":
+        from google.auth import default
+        from google.oauth2 import service_account
+        from google.auth.transport.requests import Request
+        from langchain_openai import ChatOpenAI
+        
+        # Hybrid credentials
+        credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+        
+        if credentials_path and os.path.exists(credentials_path):
+            credentials = service_account.Credentials.from_service_account_file(
+                credentials_path,
+                scopes=['https://www.googleapis.com/auth/cloud-platform']
+            )
+            print(f"[TRANSACTION] Using service account from {credentials_path}")
+        else:
+            credentials, _ = default(scopes=['https://www.googleapis.com/auth/cloud-platform'])
+            print(f"[TRANSACTION] Using default credentials (Cloud Run)")
+        
+        credentials.refresh(Request())
+        
+        region = "global"
+        base_url = f"https://aiplatform.googleapis.com/v1/projects/{project_id}/locations/{region}/endpoints/openapi"
+        
+        model = ChatOpenAI(
+            base_url=base_url,
+            api_key=credentials.token,
+            model="openai/gpt-oss-120b-maas",
+            temperature=0.3,
+        ).bind_tools(tool_list).with_structured_output(TransactionPlan)
+        
+        print(f"[TRANSACTION] Using OpenAI GPT-OSS-120B (region: {region})")
+    
+    # ✅ OPTION 2: Qwen 3
+    elif model_choice == "qwen":
+        from google.auth import default
+        from google.oauth2 import service_account
+        from google.auth.transport.requests import Request
+        from langchain_openai import ChatOpenAI
+        
+        # Hybrid credentials
+        credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+        
+        if credentials_path and os.path.exists(credentials_path):
+            credentials = service_account.Credentials.from_service_account_file(
+                credentials_path,
+                scopes=['https://www.googleapis.com/auth/cloud-platform']
+            )
+            print(f"[TRANSACTION] Using service account from {credentials_path}")
+        else:
+            credentials, _ = default(scopes=['https://www.googleapis.com/auth/cloud-platform'])
+            print(f"[TRANSACTION] Using default credentials (Cloud Run)")
+        
+        credentials.refresh(Request())
+        
+        region = "us-south1"
+        base_url = f"https://us-south1-aiplatform.googleapis.com/v1/projects/{project_id}/locations/{region}/endpoints/openapi"
+        
+        model = ChatOpenAI(
+            base_url=base_url,
+            api_key=credentials.token,
+            model="qwen/qwen3-235b-a22b-instruct-2507-maas",
+            temperature=0.3,
+        ).bind_tools(tool_list).with_structured_output(TransactionPlan)
+        
+        print(f"[TRANSACTION] Using Qwen 3 235B (region: {region})")
+    
+    # ✅ OPTION 3: Gemini (Default - Recommended)
+    else:  # gemini
+        model = ChatVertexAI(
+            model="gemini-2.5-flash",
+            location="global",
+            project=project_id,
+            temperature=0.3,
+        ).bind_tools(tool_list).with_structured_output(TransactionPlan)
+        
+        print(f"[TRANSACTION] Using Gemini 2.0 Flash (recommended)")
     
     tool_node = ToolNode(tool_list)
     

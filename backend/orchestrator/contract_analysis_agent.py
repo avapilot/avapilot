@@ -11,6 +11,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 from langchain_google_vertexai import ChatVertexAI
 from langchain_core.tools import tool
+import os
 
 
 class AnalysisState(TypedDict):
@@ -290,7 +291,7 @@ You have exactly ONE job: systematically analyze this contract using your tools.
 
 
 def create_analysis_agent():
-    """Creates the contract analysis agent with forced tool usage"""
+    """Creates the contract analysis agent with model selection"""
     
     tool_list = [
         analyze_contract_structure,
@@ -299,12 +300,90 @@ def create_analysis_agent():
         identify_security_risks
     ]
     
-    model = ChatVertexAI(
-        model="gemini-2.0-flash",
-        location="global",
-        project="avapilot",
-        temperature=0.2  # Lower temp for more consistent tool usage
-    ).bind_tools(tool_list)
+    # ========================================
+    # MODEL CONFIGURATION (same as chat_agent)
+    # ========================================
+    model_choice = os.getenv("LLM_MODEL", "openai")  # Default: openai
+    project_id = os.getenv("GCP_PROJECT", "avapilot")
+    
+    # ✅ OPTION 1: OpenAI GPT
+    if model_choice == "openai":
+        from google.auth import default
+        from google.oauth2 import service_account
+        from google.auth.transport.requests import Request
+        from langchain_openai import ChatOpenAI
+        
+        # Hybrid credentials
+        credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+        
+        if credentials_path and os.path.exists(credentials_path):
+            credentials = service_account.Credentials.from_service_account_file(
+                credentials_path,
+                scopes=['https://www.googleapis.com/auth/cloud-platform']
+            )
+            print(f"[ANALYSIS] Using service account from {credentials_path}")
+        else:
+            credentials, _ = default(scopes=['https://www.googleapis.com/auth/cloud-platform'])
+            print(f"[ANALYSIS] Using default credentials (Cloud Run)")
+        
+        credentials.refresh(Request())
+        
+        region = "global"
+        base_url = f"https://aiplatform.googleapis.com/v1/projects/{project_id}/locations/{region}/endpoints/openapi"
+        
+        model = ChatOpenAI(
+            base_url=base_url,
+            api_key=credentials.token,
+            model="openai/gpt-oss-120b-maas",
+            temperature=0.2,
+        ).bind_tools(tool_list)
+        
+        print(f"[ANALYSIS] Using OpenAI GPT-OSS-120B (region: {region})")
+    
+    # ✅ OPTION 2: Qwen 3
+    elif model_choice == "qwen":
+        from google.auth import default
+        from google.oauth2 import service_account
+        from google.auth.transport.requests import Request
+        from langchain_openai import ChatOpenAI
+        
+        # Hybrid credentials
+        credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+        
+        if credentials_path and os.path.exists(credentials_path):
+            credentials = service_account.Credentials.from_service_account_file(
+                credentials_path,
+                scopes=['https://www.googleapis.com/auth/cloud-platform']
+            )
+            print(f"[ANALYSIS] Using service account from {credentials_path}")
+        else:
+            credentials, _ = default(scopes=['https://www.googleapis.com/auth/cloud-platform'])
+            print(f"[ANALYSIS] Using default credentials (Cloud Run)")
+        
+        credentials.refresh(Request())
+        
+        region = "us-south1"
+        base_url = f"https://us-south1-aiplatform.googleapis.com/v1/projects/{project_id}/locations/{region}/endpoints/openapi"
+        
+        model = ChatOpenAI(
+            base_url=base_url,
+            api_key=credentials.token,
+            model="qwen/qwen3-235b-a22b-instruct-2507-maas",
+            temperature=0.2,
+        ).bind_tools(tool_list)
+        
+        print(f"[ANALYSIS] Using Qwen 3 235B (region: {region})")
+    
+    # ✅ OPTION 3: Gemini (Default - Recommended)
+    else:  # gemini
+        model = ChatVertexAI(
+            model="gemini-2.5-flash",
+            location="global",
+            project=project_id,
+            temperature=0.2,
+        ).bind_tools(tool_list)
+        
+        print(f"[ANALYSIS] Using Gemini 2.0 Flash (recommended)")
     
     tool_node = ToolNode(tool_list)
     

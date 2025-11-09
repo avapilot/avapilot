@@ -319,7 +319,7 @@ def create_chat_agent():
     # Choose model via environment variable: LLM_MODEL=openai|qwen|gemini
     # Default: gemini (most reliable, no token management needed)
     
-    model_choice = os.getenv("LLM_MODEL", "openai")
+    model_choice = os.getenv("LLM_MODEL", "qwen")
     project_id = os.getenv("GCP_PROJECT", "avapilot")
     
     # ========================================
@@ -382,7 +382,6 @@ def create_chat_agent():
             project=project_id,
             location="global",
             temperature=0.3,
-            max_tokens=8192
         ).bind_tools(tool_list)
         
         print(f"[MODEL] Using Gemini 2.5 Flash (recommended)")
