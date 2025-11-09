@@ -12,6 +12,8 @@ from langchain_google_vertexai import ChatVertexAI
 from tools import get_token_address, get_contract_abi
 from tools import get_contract_abi_impl, generate_transaction_impl
 from schemas import TransactionPlan
+import os
+from agent_config import config
 
 
 class AgentState(TypedDict):
@@ -19,151 +21,243 @@ class AgentState(TypedDict):
     iteration_count: int
 
 
-# Even more aggressive prompting
-PLANNING_PROMPT = """You are a blockchain transaction planner for Avalanche.
+# ✅ UNIVERSAL PROMPT - Works for ANY contract
+PLANNING_PROMPT = """You are a transaction planning agent for Avalanche blockchain smart contracts.
 
-**CRITICAL RULE: ALWAYS verify function names from ABI before planning!**
+**YOUR ONLY JOB:** Plan the transaction parameters for calling a function on a smart contract.
 
-**STEP 0 (REQUIRED FIRST STEP):**
-Call get_contract_abi(contract_address) to see available functions.
+**Available Tools (for information gathering ONLY):**
+- get_token_address: Get ERC20 token contract addresses (WAVAX, USDC, USDT, etc.)
+- get_contract_abi: Get the contract's ABI to discover available functions and their signatures
 
-**STEP 1:**
-Review the ABI and find the exact function name that matches the user's intent.
+**CRITICAL RULES:**
+1. ✅ These tools help you gather information to PLAN the transaction
+2. ✅ The function_name you return must be a SMART CONTRACT function (e.g., transfer, swap, approve, mint, purchase, claim)
+3. ❌ NEVER put tool names (get_contract_abi, get_token_address) in function_name
+4. ❌ If you don't know the exact function name, USE get_contract_abi to discover it first
+5. ✅ If the user's message clearly states the function name, you can use it directly
 
-**Common Insurance Functions:**
-- purchaseInsurance(uint256) - Buy an insurance contract
-- createInsurance(...) - Create new insurance
-- claimInsurance(uint256) - Claim payout
-- cancelInsurance(uint256) - Cancel insurance
+**Common Function Patterns:**
 
-**DO NOT guess function names!** Always check the ABI first.
+**DEX/Swap Contracts:**
+- swapExactAVAXForTokens, swapExactTokensForAVAX, swapExactTokensForTokens
+- addLiquidity, removeLiquidity
+- Args often include: amounts, token addresses, recipient, deadline
 
-**YOUR TASK:** Create a precise transaction plan.
+**Token Contracts (ERC20):**
+- transfer(to, amount)
+- approve(spender, amount)
+- transferFrom(from, to, amount)
 
-**CRITICAL: Understanding address[] Parameters**
+**NFT Contracts (ERC721/ERC1155):**
+- mint(to, tokenId) or mint(amount)
+- safeTransferFrom(from, to, tokenId)
+- approve(to, tokenId)
 
-When you see `address[] path` in a function signature, you MUST create a Python LIST:
+**DeFi Protocols:**
+- deposit(amount), withdraw(amount)
+- stake(amount), unstake(amount)
+- claim(), claimRewards()
 
-✅ CORRECT FORMAT:
-function_args: [1, ["0xAddr1", "0xAddr2"], "0xUserAddr", 1760107642]
-                   ↑↑↑ This is a LIST with square brackets containing 2 addresses ↑↑↑
+**Insurance/Derivatives:**
+- purchasePolicy(policyId), purchaseInsurance(insuranceId)
+- claimPayout(claimId)
+- cancelPolicy(policyId)
 
-❌ WRONG FORMAT (DON'T DO THIS):
-function_args: [1, "0xAddr1", "0xAddr2", "0xUserAddr", 1760107642]
-                   ↑ These are separate strings, NOT a list!
+**Governance:**
+- vote(proposalId, support)
+- delegate(delegatee)
+- propose(targets, values, calldatas, description)
 
-**STEP-BY-STEP for swapExactAVAXForTokens:**
+**When User Says:**
+- "swap 1 AVAX for USDC" → Use get_token_address, then plan swapExactAVAXForTokens
+- "transfer 100 USDC to 0x123..." → Plan transfer(0x123..., 100000000) # Note: 6 decimals for USDC
+- "approve contract 0xABC..." → Plan approve(0xABC..., amount)
+- "call purchaseInsurance(25)" → Plan purchaseInsurance(25) # User gave you the function name
+- "buy insurance 25" → Use get_contract_abi to find if it's purchaseInsurance, buyInsurance, or purchase
+- "mint NFT" → Use get_contract_abi to find exact mint function signature
 
-1. Check function signature:
-   ```
-   swapExactAVAXForTokens(
-     uint256 amountOutMin,    ← Argument 0: integer
-     address[] path,          ← Argument 1: ARRAY (list with [])
-     address to,              ← Argument 2: string
-     uint256 deadline         ← Argument 3: integer
-   )
-   ```
+**Response Format:**
+Return a TransactionPlan JSON with:
+```json
+{{
+  "function_name": "actualContractFunction",
+  "function_args": [arg1, arg2, ...],
+  "value_in_avax": 0.0,
+  "contract_address": "0x...",
+  "reasoning": "Brief explanation"
+}}
+```
 
-2. For "swap AVAX for USDC":
-   - amountOutMin = 1 (integer)
-   - path = [WAVAX_address, USDC_address] ← MUST BE IN []!
-   - to = user_wallet_address
-   - deadline = {timestamp} + 1200
+**Examples:**
 
-3. Build function_args with exactly 4 arguments:
-   ```python
-   [
-     1,                                                    # arg 0
-     ["0x1d308089a2d1ced3f1ce36b1fcaf815b07217be3",     # arg 1 (list!)
-      "0x5425890298aed601595a70AB815c96711a31Bc65"],
-     "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",      # arg 2
-     {deadline}                                           # arg 3
-   ]
-   ```
+1. **Token Transfer**
+```json
+{{
+  "function_name": "transfer",
+  "function_args": ["0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb5", 1000000000000000000],
+  "value_in_avax": 0.0,
+  "contract_address": "0xTokenAddress",
+  "reasoning": "Transfer 1 token (18 decimals)"
+}}
+```
 
-**EXAMPLE OUTPUT:**
+2. **DEX Swap**
+```json
 {{
   "function_name": "swapExactAVAXForTokens",
-  "function_args": [
-    1,
-    ["0x1d308089a2d1ced3f1ce36b1fcaf815b07217be3", "0x5425890298aed601595a70AB815c96711a31Bc65"],
-    "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
-    {deadline}
-  ],
-  "value_in_avax": 0.01,
-  "contract_address": "0x60aE616a2155Ee3d9A68541Ba4544862310933d4",
-  "reasoning": "Swap 0.01 AVAX for USDC"
+  "function_args": [0, ["0xWAVAX", "0xUSDC"], "0xUserAddress", 1699999999],
+  "value_in_avax": 1.0,
+  "contract_address": "0xRouterAddress",
+  "reasoning": "Swap 1 AVAX for USDC"
 }}
+```
 
-**PROCESS:**
-1. Call get_token_address("WAVAX") → get address
-2. Call get_token_address("USDC") → get address
-3. Call get_contract_abi(contract) → verify function exists
-4. Return plan with path as [WAVAX_address, USDC_address] in a list!
+3. **Generic Contract Call** (when user provides function name)
+```json
+{{
+  "function_name": "purchaseInsurance",
+  "function_args": [25],
+  "value_in_avax": 0.01,
+  "contract_address": "{contract_address}",
+  "reasoning": "Purchase insurance policy ID 25"
+}}
+```
 
-Current timestamp: {timestamp}
+**Your Context:**
+- Contract: {contract_address}
+- User: {user_address}
+- Action: {action_description}
+
+**If you're unsure about:**
+- Token addresses → Use get_token_address
+- Function names/signatures → Use get_contract_abi
+- Decimal places → Check token ABI (usually 18 for most tokens, 6 for USDC)
+
+**NOW PLAN THE TRANSACTION:**
 """
 
 
 def fix_swap_arguments(function_name: str, args: list, abi_string: str) -> list:
     """
     Auto-fix common mistakes in argument structure.
-    If LLM flattens the address[] array, reconstruct it.
+    Handles common patterns where LLMs flatten arrays.
     """
     print(f"\n[AUTO-FIX] Checking arguments for {function_name}")
     print(f"  Input args: {args}")
     print(f"  Input types: {[type(a).__name__ for a in args]}")
     
-    if function_name != "swapExactAVAXForTokens":
-        print(f"  → Not a swap function, no fix needed")
+    # ✅ UNIVERSAL: Parse ABI to find expected parameter structure
+    import json
+    try:
+        abi = json.loads(abi_string)
+    except:
+        print("  ⚠️  Could not parse ABI, skipping auto-fix")
         return args
     
-    # Expected: [amountOutMin, [path], to, deadline]
-    # If we have 5+ args, LLM likely flattened the array
-    if len(args) == 4:
-        # Check if arg[1] is already a list
-        if isinstance(args[1], list):
-            print(f"  ✓ Arguments already correct!")
-            return args
+    # Find the function in ABI
+    func_abi = None
+    for item in abi:
+        if item.get('type') == 'function' and item.get('name') == function_name:
+            func_abi = item
+            break
+    
+    if not func_abi:
+        print(f"  ⚠️  Function '{function_name}' not found in ABI, skipping auto-fix")
+        return args
+    
+    expected_inputs = func_abi.get('inputs', [])
+    print(f"  Expected {len(expected_inputs)} parameters:")
+    for i, inp in enumerate(expected_inputs):
+        print(f"    [{i}] {inp.get('name', f'param{i}')}: {inp['type']}")
+    
+    # ✅ UNIVERSAL FIX: Check for flattened arrays
+    if len(args) != len(expected_inputs):
+        print(f"  ⚠️  Arg count mismatch: got {len(args)}, expected {len(expected_inputs)}")
+        
+        # Try to reconstruct arrays
+        fixed_args = []
+        arg_index = 0
+        
+        for i, expected in enumerate(expected_inputs):
+            param_type = expected['type']
+            
+            # Check if this parameter should be an array
+            if '[]' in param_type:
+                print(f"  → Parameter {i} expects array: {param_type}")
+                
+                # Determine array size (heuristic: collect until next expected type or end)
+                array_elements = []
+                base_type = param_type.replace('[]', '')
+                
+                # Collect consecutive args that match the base type
+                while arg_index < len(args):
+                    current_arg = args[arg_index]
+                    
+                    # Check if this looks like the next parameter
+                    if i + 1 < len(expected_inputs):
+                        next_type = expected_inputs[i + 1]['type']
+                        if self._matches_type(current_arg, next_type):
+                            # This might be the next parameter, stop collecting
+                            break
+                    
+                    # Add to array if it matches base type
+                    if self._matches_type(current_arg, base_type):
+                        array_elements.append(current_arg)
+                        arg_index += 1
+                    else:
+                        break
+                
+                if array_elements:
+                    print(f"    ✓ Reconstructed array with {len(array_elements)} elements")
+                    fixed_args.append(array_elements)
+                else:
+                    print(f"    ✗ No elements found for array, using empty array")
+                    fixed_args.append([])
+            else:
+                # Regular parameter
+                if arg_index < len(args):
+                    fixed_args.append(args[arg_index])
+                    arg_index += 1
+                else:
+                    print(f"    ✗ Missing argument for parameter {i}")
+                    return args  # Can't fix, return original
+        
+        if len(fixed_args) == len(expected_inputs):
+            print(f"  ✓ Successfully fixed arguments!")
+            print(f"  ✓ Fixed args: {fixed_args}")
+            return fixed_args
         else:
-            print(f"  ⚠️  Arg[1] should be list but is {type(args[1]).__name__}")
-            # Maybe it's a single-element path?
-            print(f"  → Cannot auto-fix: unknown structure")
+            print(f"  ✗ Fix failed: got {len(fixed_args)} args, needed {len(expected_inputs)}")
             return args
     
-    elif len(args) == 5:
-        # Likely: [amountOutMin, addr1, addr2, to, deadline]
-        # Fix: [amountOutMin, [addr1, addr2], to, deadline]
-        print(f"  ⚠️  Detected flattened array (5 args instead of 4)")
-        print(f"  → Reconstructing: args[1] and args[2] should be in a list")
-        
-        fixed_args = [
-            args[0],           # amountOutMin
-            [args[1], args[2]], # [path]
-            args[3],           # to
-            args[4]            # deadline
-        ]
-        
-        print(f"  ✓ Fixed args: {fixed_args}")
-        print(f"  ✓ Fixed types: {[type(a).__name__ for a in fixed_args]}")
-        return fixed_args
-    
-    else:
-        print(f"  ⚠️  Unexpected arg count: {len(args)}")
-        print(f"  → Cannot auto-fix")
-        return args
+    print(f"  ✓ Arguments already correct!")
+    return args
+
+
+def _matches_type(value, solidity_type: str) -> bool:
+    """Helper to check if a Python value matches a Solidity type"""
+    if solidity_type.startswith('uint') or solidity_type.startswith('int'):
+        return isinstance(value, int)
+    elif solidity_type == 'address':
+        return isinstance(value, str) and value.startswith('0x') and len(value) == 42
+    elif solidity_type == 'bool':
+        return isinstance(value, bool)
+    elif solidity_type == 'string':
+        return isinstance(value, str)
+    elif solidity_type == 'bytes' or solidity_type.startswith('bytes'):
+        return isinstance(value, (str, bytes))
+    return False
 
 
 def create_planning_agent():
-    """Creates agent for planning only"""
+    """Creates agent for planning only with model selection"""
     
     tool_list = [get_token_address, get_contract_abi]
     
-    model = ChatVertexAI(
-        model="gemini-2.0-flash",
-        location="global",
-        project="avapilot"
-    ).bind_tools(tool_list).with_structured_output(TransactionPlan)
+    # ✅ USE CONFIG: Create model using centralized config
+    agent_name = "transaction_agent"
+    model = config.create_model(agent_name, tools=tool_list, structured_output=TransactionPlan)
     
     tool_node = ToolNode(tool_list)
     
@@ -174,8 +268,10 @@ def create_planning_agent():
         return result
     
     def should_continue(state):
+        iteration_limit = config.get_iteration_limit("transaction_agent")
         iteration_count = state.get('iteration_count', 0)
-        if iteration_count > 5:
+        
+        if iteration_count > iteration_limit:
             return END
         
         last_message = state['messages'][-1]
@@ -213,75 +309,89 @@ def run_transaction_agent(
     contract_address: str = None
 ) -> dict:
     """
-    Two phases with auto-fix:
+    Universal transaction planning with auto-fix:
     1. LLM plans (with tools)
-    2. Auto-fix arguments if needed
-    3. Python executes (no LLM)
+    2. Auto-fix arguments based on ABI
+    3. Python executes
     """
     
     print("\n" + "="*60)
     print("PHASE 1: PLANNING (LLM WITH TOOLS)")
     print("="*60)
     
-    current_timestamp = int(time.time())
-    deadline = current_timestamp + 1200
-    
     prompt = PLANNING_PROMPT.format(
-        timestamp=current_timestamp,
-        deadline=deadline
+        contract_address=contract_address or "Unknown",
+        user_address=user_address or "Unknown",
+        action_description=message
     )
-    
-    full_message = f"{prompt}\n\n**Task:** {message}"
-    if user_address:
-        full_message += f"\n**User:** {user_address}"
-    if contract_address:
-        full_message += f"\n**Contract:** {contract_address}"
     
     graph = create_planning_agent()
     
     try:
         result = graph.invoke({
-            "messages": [HumanMessage(content=full_message)],
+            "messages": [HumanMessage(content=prompt)],
             "iteration_count": 0
-        })
+        }, config={"recursion_limit": config.get_recursion_limit("transaction_agent")})
         
-        # Extract plan
+        print(f"\n[DEBUG] Result keys: {result.keys()}")
+        print(f"[DEBUG] Number of messages: {len(result.get('messages', []))}")
+        
+        # Extract plan with better debugging
         plan = None
-        for msg in result.get('messages', []):
+        for i, msg in enumerate(result.get('messages', [])):
+            print(f"[DEBUG] Message {i}: type={type(msg).__name__}")
+            
             if isinstance(msg, TransactionPlan):
                 plan = msg
+                print(f"[DEBUG] ✓ Found TransactionPlan at message {i}")
                 break
+            
+            if hasattr(msg, 'content') and isinstance(msg.content, TransactionPlan):
+                plan = msg.content
+                print(f"[DEBUG] ✓ Found TransactionPlan in content at message {i}")
+                break
+            
+            # Try to convert dict to TransactionPlan
+            if hasattr(msg, 'content') and isinstance(msg.content, dict):
+                try:
+                    plan = TransactionPlan(**msg.content)
+                    print(f"[DEBUG] ✓ Converted dict to TransactionPlan at message {i}")
+                    break
+                except Exception as e:
+                    print(f"[DEBUG] ✗ Failed to convert dict: {e}")
         
         if not plan:
-            return {"type": "error", "message": "Planning failed"}
+            print(f"\n[ERROR] No TransactionPlan found in {len(result.get('messages', []))} messages")
+            return {
+                "type": "error", 
+                "message": "Transaction planning failed - the AI couldn't understand the function to call. Try being more specific about the function name."
+            }
         
         print(f"\n[PLAN RECEIVED]")
         print(f"  Function: {plan.function_name}")
         print(f"  Args: {plan.function_args}")
         print(f"  Args types: {[type(arg).__name__ for arg in plan.function_args]}")
-        print(f"  Args count: {len(plan.function_args)}")
+        print(f"  Value: {plan.value_in_avax} AVAX")
         
-        # Get ABI first for auto-fix
+        # Get ABI for auto-fix
         print("\n[PHASE 1.5: AUTO-FIX CHECK]")
         abi = get_contract_abi_impl(plan.contract_address)
         if abi.startswith("Error"):
             return {"type": "error", "message": f"Failed to get ABI: {abi}"}
         
-        # Auto-fix arguments if needed
+        # Auto-fix arguments based on ABI
         fixed_args = fix_swap_arguments(
             plan.function_name,
             plan.function_args,
             abi
         )
         
-        # Update plan with fixed args
         plan.function_args = fixed_args
         
         print("\n" + "="*60)
         print("PHASE 2: EXECUTION (PYTHON ONLY)")
         print("="*60)
         
-        # Execute with fixed args
         print("[EXECUTION] Generating transaction...")
         result = generate_transaction_impl(
             contract_address=plan.contract_address,
@@ -299,7 +409,7 @@ def run_transaction_agent(
         # Verify
         data_length = len(tx["data"])
         if data_length < 50:
-            return {"type": "error", "message": "Transaction data too short"}
+            return {"type": "error", "message": "Transaction data too short - function call may be invalid"}
         
         print(f"\n[SUCCESS] Transaction ready")
         print(f"  ✓ To: {tx['to']}")
@@ -317,4 +427,80 @@ def run_transaction_agent(
         print(f"[ERROR] {e}")
         import traceback
         traceback.print_exc()
-        return {"type": "error", "message": f"Failed: {str(e)}"}
+        return {"type": "error", "message": f"Transaction failed: {str(e)}"}
+
+
+# Add helper to the class
+def fix_swap_arguments(function_name: str, args: list, abi_string: str) -> list:
+    """Auto-fix with ABI-aware array reconstruction"""
+    print(f"\n[AUTO-FIX] Checking arguments for {function_name}")
+    print(f"  Input args: {args}")
+    print(f"  Input types: {[type(a).__name__ for a in args]}")
+    
+    import json
+    try:
+        abi = json.loads(abi_string)
+    except:
+        print("  ⚠️  Could not parse ABI, skipping auto-fix")
+        return args
+    
+    # Find function in ABI
+    func_abi = None
+    for item in abi:
+        if item.get('type') == 'function' and item.get('name') == function_name:
+            func_abi = item
+            break
+    
+    if not func_abi:
+        print(f"  ⚠️  Function '{function_name}' not found in ABI")
+        return args
+    
+    expected_inputs = func_abi.get('inputs', [])
+    print(f"  Expected {len(expected_inputs)} parameters")
+    
+    # If counts match, assume it's correct
+    if len(args) == len(expected_inputs):
+        print(f"  ✓ Argument count matches, assuming correct")
+        return args
+    
+    # Try to fix flattened arrays
+    print(f"  ⚠️  Count mismatch: {len(args)} args vs {len(expected_inputs)} expected")
+    print(f"  → Attempting to reconstruct arrays...")
+    
+    fixed_args = []
+    arg_idx = 0
+    
+    for i, param in enumerate(expected_inputs):
+        param_type = param['type']
+        
+        if '[]' in param_type:
+            # Collect elements for array
+            array_items = []
+            
+            # Simple heuristic: collect until we hit different type or run out
+            while arg_idx < len(args):
+                # If this is the last parameter, take remaining args
+                if i == len(expected_inputs) - 1:
+                    array_items.append(args[arg_idx])
+                    arg_idx += 1
+                # Otherwise, collect until count matches remaining params
+                elif len(fixed_args) + 1 + (len(args) - arg_idx) >= len(expected_inputs):
+                    array_items.append(args[arg_idx])
+                    arg_idx += 1
+                else:
+                    break
+            
+            fixed_args.append(array_items)
+            print(f"    ✓ Reconstructed array[{i}] with {len(array_items)} items")
+        else:
+            # Regular parameter
+            if arg_idx < len(args):
+                fixed_args.append(args[arg_idx])
+                arg_idx += 1
+    
+    if len(fixed_args) == len(expected_inputs):
+        print(f"  ✓ Successfully reconstructed {len(fixed_args)} parameters")
+        return fixed_args
+    
+    print(f"  ✗ Reconstruction failed, using original args")
+    return args

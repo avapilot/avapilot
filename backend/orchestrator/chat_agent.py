@@ -9,7 +9,11 @@ from typing import TypedDict, Annotated, Sequence
 from langchain_core.messages import BaseMessage, ToolMessage, HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, END, MessagesState
 from langgraph.prebuilt import ToolNode
-from langchain_anthropic import ChatAnthropic  # ← ADD THIS
+from langchain_google_vertexai import ChatVertexAI
+from langchain_openai import ChatOpenAI
+from google.auth import default
+from google.auth.transport.requests import Request
+
 from tools import (
     get_token_address, 
     get_contract_abi, 
@@ -21,6 +25,7 @@ from tools import (
     get_insurance_details
 )
 from transaction_tool import generate_blockchain_transaction
+from agent_config import config
 
 # Initialize Firestore checkpointer
 from langgraph_checkpoint_firestore import FirestoreSaver
@@ -295,7 +300,7 @@ Current timestamp: {timestamp}
 
 
 def create_chat_agent():
-    """Creates the chat agent with Firestore memory"""
+    """Creates the chat agent with Firestore memory using Vertex AI"""
     
     tool_list = [
         generate_blockchain_transaction,
@@ -309,13 +314,8 @@ def create_chat_agent():
         get_insurance_details
     ]
     
-    # ✅ CHANGED: Use Claude for better tool usage
-    model = ChatAnthropic(
-        model="claude-sonnet-4-20250514",
-        api_key=os.getenv("ANTHROPIC_API_KEY"),
-        temperature=0.3,  # Slightly higher for conversational tone
-        max_tokens=2000   # Enough for explanations
-    ).bind_tools(tool_list)
+    # ✅ ONE LINE - Config handles everything!
+    model = config.create_model("chat_agent", tools=tool_list)
     
     tool_node = ToolNode(tool_list)
     
@@ -326,8 +326,12 @@ def create_chat_agent():
         return result
     
     def should_continue(state):
+        # ✅ USE CONFIG: Get iteration limit
+        iteration_limit = config.get_iteration_limit("chat_agent")
         iteration_count = state.get('iteration_count', 0)
-        if iteration_count > 10:
+        
+        if iteration_count > iteration_limit:
+            print(f"⚠️ Hit iteration limit ({iteration_count}/{iteration_limit}). Stopping.")
             return END
         
         messages = state['messages']
@@ -343,27 +347,10 @@ def create_chat_agent():
         messages = list(state['messages'])
         print(f"[MEMORY] Loaded {len(messages)} messages from Firestore")
         
-        # ✅ FIXED: Simple trimming to last 20 messages
-        if len(messages) > 20:
-            print(f"[MEMORY] Trimming {len(messages)} → 20 messages")
-            
-            # Find the last HumanMessage to keep context
-            last_human_idx = None
-            for i in range(len(messages) - 1, -1, -1):
-                if isinstance(messages[i], HumanMessage):
-                    last_human_idx = i
-                    break
-            
-            if last_human_idx is not None and last_human_idx > len(messages) - 20:
-                # Keep from last human message onwards
-                print(f"[MEMORY] Keeping messages from last human message (index {last_human_idx})")
-                messages = messages[last_human_idx:]
-            else:
-                # Fallback: just take last 20 messages
-                print(f"[MEMORY] Taking last 20 messages")
-                messages = messages[-20:]
-            
-            print(f"[MEMORY] After trim: {len(messages)} messages")
+        # ✅ INCREASED: Trim to last 50 messages (was 20)
+        if len(messages) > config.MESSAGE_TRIM_LIMIT:
+            print(f"[MEMORY] Trimming messages: {len(messages)} → {config.MESSAGE_TRIM_LIMIT}")
+            messages = messages[-config.MESSAGE_TRIM_LIMIT:]
         
         # Ensure we never send empty messages
         if not messages:
@@ -488,21 +475,23 @@ def run_chat_agent(
     
     # Pass conversation_id as thread_id in config
     # NEW: Store allowed_contract in config for system prompt
-    config = {
+    config_dict = {
         "configurable": {
             "thread_id": conversation_id,
-            "allowed_contract": allowed_contract  # NEW
-        }
+            "allowed_contract": allowed_contract
+        },
+        "recursion_limit": config.get_recursion_limit("chat_agent")  # ← ADD THIS
     }
     
     print(f"[MEMORY] Using Firestore with thread_id: {conversation_id}")
+    print(f"[CONFIG] Recursion limit: {config_dict['recursion_limit']}")
     
     graph = create_chat_agent()
     
     # Accumulate ALL messages
     all_messages = []
     
-    for output in graph.stream(inputs, config=config):
+    for output in graph.stream(inputs, config=config_dict):
         for key, value in output.items():
             if 'messages' in value:
                 all_messages.extend(value['messages'])

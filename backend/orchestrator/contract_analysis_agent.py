@@ -11,6 +11,8 @@ from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 from langchain_google_vertexai import ChatVertexAI
 from langchain_core.tools import tool
+import os
+from agent_config import config
 
 
 class AnalysisState(TypedDict):
@@ -290,7 +292,7 @@ You have exactly ONE job: systematically analyze this contract using your tools.
 
 
 def create_analysis_agent():
-    """Creates the contract analysis agent with forced tool usage"""
+    """Creates the contract analysis agent"""
     
     tool_list = [
         analyze_contract_structure,
@@ -299,12 +301,8 @@ def create_analysis_agent():
         identify_security_risks
     ]
     
-    model = ChatVertexAI(
-        model="gemini-2.0-flash",
-        location="global",
-        project="avapilot",
-        temperature=0.2  # Lower temp for more consistent tool usage
-    ).bind_tools(tool_list)
+    # ✅ ONE LINE - Config handles everything!
+    model = config.create_model("analysis_agent", tools=tool_list)
     
     tool_node = ToolNode(tool_list)
     
@@ -315,10 +313,13 @@ def create_analysis_agent():
         return result
     
     def should_continue(state):
+        # ✅ USE CONFIG
+        iteration_limit = config.get_iteration_limit("analysis_agent")
+        
         iteration_count = state.get('iteration_count', 0)
         
         # More iterations allowed
-        if iteration_count > 15:
+        if iteration_count > iteration_limit:
             print("[CONTRACT ANALYSIS] ⚠️ Max iterations reached")
             return END
         
@@ -418,6 +419,7 @@ def run_contract_analysis(
     graph = create_analysis_agent()
     
     try:
+        # ✅ USE CONFIG
         result = graph.invoke({
             "messages": [HumanMessage(content=prompt)],
             "iteration_count": 0,
@@ -425,6 +427,8 @@ def run_contract_analysis(
             "abi": abi,
             "source_code": source_code or "",
             "analysis_results": {}
+        }, config={
+            "recursion_limit": config.get_recursion_limit("analysis_agent")
         })
         
         # Extract final analysis from messages

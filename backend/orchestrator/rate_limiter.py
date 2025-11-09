@@ -10,6 +10,7 @@ import time
 from collections import defaultdict
 from threading import Lock
 from error_tracker import log_warning
+from agent_config import config  # ← ADD THIS
 
 # In-memory storage for short-term rate limiting
 class RateLimiter:
@@ -17,17 +18,8 @@ class RateLimiter:
         self.requests = defaultdict(list)
         self.lock = Lock()
         
-        # Define rate limits per tier
-        self.RATE_LIMITS = {
-            "free": {
-                "requests_per_minute": 20,
-                "requests_per_day": 500
-            },
-            "paid": {
-                "requests_per_minute": 100,
-                "requests_per_day": 10000
-            }
-        }
+        # ✅ USE CONFIG
+        self.RATE_LIMITS = config.RATE_LIMITS
         
         # Free tier API key (same for everyone during alpha)
         self.FREE_API_KEY = "avapilot_free_alpha"
