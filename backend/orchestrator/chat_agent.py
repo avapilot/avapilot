@@ -25,6 +25,7 @@ from tools import (
     get_insurance_details
 )
 from transaction_tool import generate_blockchain_transaction
+from agent_config import config
 
 # Initialize Firestore checkpointer
 from langgraph_checkpoint_firestore import FirestoreSaver
@@ -313,78 +314,8 @@ def create_chat_agent():
         get_insurance_details
     ]
     
-    # ========================================
-    # MODEL CONFIGURATION
-    # ========================================
-    # Choose model via environment variable: LLM_MODEL=openai|qwen|gemini
-    # Default: gemini (most reliable, no token management needed)
-    
-    model_choice = os.getenv("LLM_MODEL", "qwen")
-    project_id = os.getenv("GCP_PROJECT", "avapilot")
-    
-    # ========================================
-    # OPTION 1: OpenAI GPT (GPT-OSS-120B)
-    # ========================================
-    # ENDPOINT: aiplatform.googleapis.com
-    # REGION: global
-    # MODEL: openai/gpt-oss-120b-maas
-    
-    if model_choice == "openai":
-        region = "global"
-        base_url = f"https://aiplatform.googleapis.com/v1/projects/{project_id}/locations/{region}/endpoints/openapi"
-        
-        credentials, _ = default(scopes=['https://www.googleapis.com/auth/cloud-platform'])
-        credentials.refresh(Request())
-        
-        model = ChatOpenAI(
-            base_url=base_url,
-            api_key=credentials.token,
-            model="openai/gpt-oss-120b-maas",
-            temperature=0.3,
-        ).bind_tools(tool_list)
-        
-        print(f"[MODEL] Using OpenAI GPT-OSS-120B (region: {region})")
-    
-    # ========================================
-    # OPTION 2: Qwen 3 (235B Instruct)
-    # ========================================
-    # ENDPOINT: us-south1-aiplatform.googleapis.com
-    # REGION: us-south1
-    # MODEL: qwen/qwen3-235b-a22b-instruct-2507-maas
-    
-    elif model_choice == "qwen":
-        region = "us-south1"
-        base_url = f"https://us-south1-aiplatform.googleapis.com/v1/projects/{project_id}/locations/{region}/endpoints/openapi"
-        
-        credentials, _ = default(scopes=['https://www.googleapis.com/auth/cloud-platform'])
-        credentials.refresh(Request())
-        
-        model = ChatOpenAI(
-            base_url=base_url,
-            api_key=credentials.token,
-            model="qwen/qwen3-235b-a22b-instruct-2507-maas",
-            temperature=0.3,
-        ).bind_tools(tool_list)
-        
-        print(f"[MODEL] Using Qwen 3 235B (region: {region})")
-    
-    # ========================================
-    # OPTION 3: Gemini 2.0 Flash (RECOMMENDED)
-    # ========================================
-    # ✅ Simplest setup - no manual token management
-    # ✅ Fastest response time
-    # ✅ Longest context window (1M tokens)
-    # ✅ Most cost-effective
-    
-    else:  # gemini (default)
-        model = ChatVertexAI(
-            model="gemini-2.5-flash",
-            project=project_id,
-            location="global",
-            temperature=0.3,
-        ).bind_tools(tool_list)
-        
-        print(f"[MODEL] Using Gemini 2.5 Flash (recommended)")
+    # ✅ ONE LINE - Config handles everything!
+    model = config.create_model("chat_agent", tools=tool_list)
     
     tool_node = ToolNode(tool_list)
     
@@ -395,9 +326,12 @@ def create_chat_agent():
         return result
     
     def should_continue(state):
+        # ✅ USE CONFIG: Get iteration limit
+        iteration_limit = config.get_iteration_limit("chat_agent")
         iteration_count = state.get('iteration_count', 0)
-        if iteration_count > 15:  # ← CHANGED FROM 10
-            print(f"⚠️ Hit iteration limit ({iteration_count}). Stopping.")  # ← ADD THIS
+        
+        if iteration_count > iteration_limit:
+            print(f"⚠️ Hit iteration limit ({iteration_count}/{iteration_limit}). Stopping.")
             return END
         
         messages = state['messages']
@@ -414,26 +348,9 @@ def create_chat_agent():
         print(f"[MEMORY] Loaded {len(messages)} messages from Firestore")
         
         # ✅ INCREASED: Trim to last 50 messages (was 20)
-        if len(messages) > 50:  # ← CHANGED FROM 20
-            print(f"[MEMORY] Trimming {len(messages)} → 50 messages")  # ← CHANGED
-            
-            # Find the last HumanMessage to keep context
-            last_human_idx = None
-            for i in range(len(messages) - 1, -1, -1):
-                if isinstance(messages[i], HumanMessage):
-                    last_human_idx = i
-                    break
-            
-            if last_human_idx is not None and last_human_idx > len(messages) - 50:  # ← CHANGED
-                # Keep from last human message onwards
-                print(f"[MEMORY] Keeping messages from last human message (index {last_human_idx})")
-                messages = messages[last_human_idx:]
-            else:
-                # Fallback: just take last 50 messages  # ← CHANGED
-                print(f"[MEMORY] Taking last 50 messages")  # ← CHANGED
-                messages = messages[-50:]  # ← CHANGED
-            
-            print(f"[MEMORY] After trim: {len(messages)} messages")
+        if len(messages) > config.MESSAGE_TRIM_LIMIT:
+            print(f"[MEMORY] Trimming messages: {len(messages)} → {config.MESSAGE_TRIM_LIMIT}")
+            messages = messages[-config.MESSAGE_TRIM_LIMIT:]
         
         # Ensure we never send empty messages
         if not messages:
@@ -558,21 +475,23 @@ def run_chat_agent(
     
     # Pass conversation_id as thread_id in config
     # NEW: Store allowed_contract in config for system prompt
-    config = {
+    config_dict = {
         "configurable": {
             "thread_id": conversation_id,
-            "allowed_contract": allowed_contract  # NEW
-        }
+            "allowed_contract": allowed_contract
+        },
+        "recursion_limit": config.get_recursion_limit("chat_agent")  # ← ADD THIS
     }
     
     print(f"[MEMORY] Using Firestore with thread_id: {conversation_id}")
+    print(f"[CONFIG] Recursion limit: {config_dict['recursion_limit']}")
     
     graph = create_chat_agent()
     
     # Accumulate ALL messages
     all_messages = []
     
-    for output in graph.stream(inputs, config=config):
+    for output in graph.stream(inputs, config=config_dict):
         for key, value in output.items():
             if 'messages' in value:
                 all_messages.extend(value['messages'])

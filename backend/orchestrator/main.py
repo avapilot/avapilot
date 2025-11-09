@@ -13,6 +13,7 @@ from chat_agent import run_chat_agent
 from error_tracker import log_error, log_warning, log_metric, ErrorType
 from google.cloud import firestore
 from rate_limiter import rate_limit
+from agent_config import config  # ← ADD THIS
 
 # --- Configuration ---
 PROJECT_ID = "avapilot" 
@@ -64,10 +65,7 @@ def health():
 
 @app.route("/metrics", methods=['GET'])
 def metrics():
-    """
-    System metrics endpoint for monitoring
-    Returns error counts, conversation stats, and system health
-    """
+    """System metrics endpoint for monitoring"""
     try:
         db = firestore.Client(project=PROJECT_ID)
         
@@ -145,10 +143,10 @@ def chat():
     if not isinstance(message, str):
         return jsonify({"error": "message must be a string"}), 400
     
-    if len(message) > 2000:
+    if len(message) > config.MAX_MESSAGE_LENGTH:
         return jsonify({
             "error": "message too long",
-            "max_length": 2000,
+            "max_length": config.MAX_MESSAGE_LENGTH,
             "your_length": len(message)
         }), 400
     
@@ -345,5 +343,7 @@ def chat():
         })
 
 
+# At startup, print config
 if __name__ == "__main__":
+    config.print_config()  # ← ADD THIS
     app.run(host='0.0.0.0', port=8080, debug=True)
