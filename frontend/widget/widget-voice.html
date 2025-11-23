@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>AvaPilot Voice</title>
+  <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+  <style>
+    /* Voice UI styles */
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+      background: #f5f5f7;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      margin: 0;
+    }
+    
+    #voice-status {
+      padding: 20px;
+      text-align: center;
+      background: white;
+      border-bottom: 1px solid #d1d1d6;
+    }
+    
+    #call-button {
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #007aff 0%, #5856d6 100%);
+      border: none;
+      color: white;
+      font-size: 48px;
+      cursor: pointer;
+      margin: auto;
+      margin-top: 50px;
+      box-shadow: 0 8px 24px rgba(0, 122, 255, 0.3);
+      transition: all 0.3s;
+    }
+    
+    #call-button:hover {
+      transform: scale(1.05);
+    }
+    
+    #call-button.active {
+      background: #ff3b30;
+      animation: pulse 1.5s infinite;
+    }
+    
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.7); }
+      50% { box-shadow: 0 0 0 20px rgba(255, 59, 48, 0); }
+    }
+    
+    #transcript {
+      padding: 20px;
+      margin: 20px;
+      background: white;
+      border-radius: 12px;
+      min-height: 100px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    
+    .message {
+      margin: 10px 0;
+      padding: 10px;
+      border-radius: 10px;
+    }
+    
+    .user-message {
+      background: #007aff;
+      color: white;
+      text-align: right;
+    }
+    
+    .agent-message {
+      background: #f5f5f7;
+      color: #1d1d1f;
+    }
+    
+    #recording-indicator {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #ff3b30;
+      color: white;
+      padding: 10px 20px;
+      border-radius: 20px;
+      font-weight: 600;
+      display: none;
+      animation: pulse 1.5s infinite;
+    }
+    
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+  </style>
+</head>
+<body>
+  <div id="voice-status">
+    <h2>AvaPilot Voice</h2>
+    <div id="status">Ready to talk</div>
+  </div>
+  
+  <!-- ✅ ADD: Recording indicator -->
+  <div id="recording-indicator">🔴 Recording: <span id="recording-duration">0.0s</span></div>
+  
+  <div style="text-align: center; margin-top: 20px;">
+    <button id="call-button">🎤</button>
+    <button id="stop-button" style="display: none; margin-left: 20px; width: 120px; height: 120px; border-radius: 50%; background: #ff3b30; border: none; color: white; font-size: 24px; cursor: pointer; box-shadow: 0 4px 12px rgba(255,59,48,0.3);">
+      ⏹ Stop
+    </button>
+  </div>
+  
+  <div id="transcript"></div>
+  
+  <script>
+    // Get config from URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const allowedContract = urlParams.get('contract');
+    const apiKey = urlParams.get('apiKey');
+    
+    // WebSocket connection
+    const VOICE_URL = 'http://localhost:8081';  // Voice service URL
+    const socket = io(VOICE_URL);
+    
+    let isConnected = false;
+    let isRecording = false;
+    let mediaRecorder;
+    let audioChunks = [];
+    let userAddress = null;
+    let conversationId = null;
+    let audioContext;
+    let audioPlayer = new Audio();
+    
+    // Request wallet from parent
+    window.parent.postMessage({ type: 'AVAPILOT_WALLET_REQUEST' }, '*');
+    
+    window.addEventListener('message', (e) => {
+      if (e.data.type === 'AVAPILOT_WALLET_CONNECTED') {
+        userAddress = e.data.address;
+        document.getElementById('status').textContent = `Connected: ${userAddress.slice(0, 6)}...`;
+      }
+    });
+    
+    // Socket events
+    socket.on('connect', () => {
+      isConnected = true;
+      console.log('[VOICE] Connected to voice server');
+    });
+    
+    socket.on('voice_ready', (data) => {
+      console.log('[VOICE] Ready:', data);
+    });
+    
+    socket.on('voice_response', (data) => {
+      console.log('[VOICE] Response:', data);
+      
+      // ✅ UPDATE: Handle recording duration updates
+      if (data.type === 'listening' && data.message) {
+        document.getElementById('status').textContent = data.message;
+      }
+      
+      if (data.type === 'voice_response') {
+        // Stop recording indicator
+        stopRecordingIndicator();
+        
+        // Add to transcript
+        addMessage('agent', data.text);
+        
+        // Play audio response
+        const audioBlob = base64ToBlob(data.audio, 'audio/mpeg');
+        const audioUrl = URL.createObjectURL(audioBlob);
+        audioPlayer.src = audioUrl;
+        audioPlayer.play();
+        
+        document.getElementById('status').textContent = 'Agent speaking...';
+        
+        audioPlayer.onended = () => {
+          document.getElementById('status').textContent = 'Your turn to speak';
+          callButton.disabled = false;
+          stopButton.disabled = false;
+        };
+      }
+      
+      if (data.type === 'transaction') {
+        stopRecordingIndicator();
+        addMessage('agent', 'Transaction ready');
+        window.parent.postMessage({
+          type: 'AVAPILOT_EXECUTE_TX',
+          transaction: data.transaction
+        }, '*');
+        callButton.disabled = false;
+        stopButton.disabled = false;
+      }
+      
+      if (data.type === 'error') {
+        stopRecordingIndicator();
+        addMessage('agent', `Error: ${data.message}`);
+        document.getElementById('status').textContent = 'Ready to talk';
+        callButton.disabled = false;
+        stopButton.disabled = false;
+      }
+    });
+    
+    // Call button
+    const callButton = document.getElementById('call-button');
+    const stopButton = document.getElementById('stop-button');
+    
+    callButton.onclick = async () => {
+      if (!userAddress) {
+        alert('Connect your wallet first');
+        return;
+      }
+      
+      if (!isRecording) {
+        // Start call
+        await startCall();
+      } else {
+        // End call
+        stopCall();
+      }
+    };
+    
+    // ✅ ADD: Stop button handler
+    stopButton.onclick = () => {
+      if (isRecording) {
+        console.log('[VOICE] User pressed stop');
+        
+        // Stop MediaRecorder
+        if (mediaRecorder && mediaRecorder.state === 'recording') {
+          mediaRecorder.stop();
+        }
+        
+        // Tell backend to process
+        socket.emit('stop_speaking');
+        
+        // Update UI immediately
+        document.getElementById('status').textContent = 'Processing...';
+        callButton.disabled = true;
+        stopButton.disabled = true;
+        
+        // Stop recording indicator
+        stopRecordingIndicator();
+        
+        // Stop tracks
+        if (mediaRecorder && mediaRecorder.stream) {
+          mediaRecorder.stream.getTracks().forEach(track => track.stop());
+        }
+        
+        isRecording = false;
+        callButton.classList.remove('active');
+        callButton.textContent = '🎤';
+        stopButton.style.display = 'none';
+      }
+    };
+    
+    function startRecordingIndicator() {
+      const indicator = document.getElementById('recording-indicator');
+      const durationSpan = document.getElementById('recording-duration');
+      
+      indicator.style.display = 'block';
+      recordingStartTime = Date.now();
+      
+      recordingTimer = setInterval(() => {
+        const elapsed = (Date.now() - recordingStartTime) / 1000;
+        durationSpan.textContent = `${elapsed.toFixed(1)}s`;
+      }, 100);
+    }
+    
+    function stopRecordingIndicator() {
+      const indicator = document.getElementById('recording-indicator');
+      indicator.style.display = 'none';
+      
+      if (recordingTimer) {
+        clearInterval(recordingTimer);
+        recordingTimer = null;
+      }
+    }
+    
+    async function startCall() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        
+        conversationId = `voice_${Date.now()}`;
+        socket.emit('start_conversation', {
+          conversation_id: conversationId,
+          user_address: userAddress,
+          allowed_contract: allowedContract,
+          api_key: apiKey
+        });
+        
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        mediaRecorder = new MediaRecorder(stream, { 
+          mimeType: 'audio/webm;codecs=opus',
+          audioBitsPerSecond: 128000
+        });
+        
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const base64 = reader.result.split(',')[1];
+              socket.emit('audio_chunk', {
+                audio: base64,
+                format: 'webm',
+                sample_rate: 16000
+              });
+            };
+            reader.readAsDataURL(event.data);
+          }
+        };
+        
+        mediaRecorder.start(500);  // 500ms chunks
+        
+        isRecording = true;
+        callButton.classList.add('active');
+        callButton.textContent = '⏸';
+        stopButton.style.display = 'inline-block';
+        document.getElementById('status').textContent = 'Listening...';
+        
+        // ✅ ADD: Start recording indicator
+        startRecordingIndicator();
+        
+      } catch (error) {
+        console.error('[VOICE] Error starting call:', error);
+        alert('Microphone access required');
+      }
+    }
+    
+    function stopCall() {
+      if (mediaRecorder) {
+        mediaRecorder.stop();
+        mediaRecorder.stream.getTracks().forEach(track => track.stop());
+      }
+      
+      socket.emit('stop_speaking');
+      
+      isRecording = false;
+      callButton.classList.remove('active');
+      callButton.textContent = '🎤';
+      stopButton.style.display = 'none';  // ← HIDE STOP BUTTON
+      document.getElementById('status').textContent = 'Call ended';
+      
+      // Re-enable buttons
+      callButton.disabled = false;
+      stopButton.disabled = false;
+    }
+    
+    function addMessage(sender, text) {
+      const div = document.createElement('div');
+      div.className = `message ${sender}-message`;
+      div.textContent = `${sender === 'user' ? 'You' : 'Agent'}: ${text}`;
+      document.getElementById('transcript').appendChild(div);
+      div.scrollIntoView({ behavior: 'smooth' });
+    }
+    
+    function base64ToBlob(base64, mimeType) {
+      const byteCharacters = atob(base64);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      return new Blob([byteArray], { type: mimeType });
+    }
+    
+    // ✅ ADD: Direct wallet detection (fallback for standalone mode)
+    const isStandalone = window.self === window.top;
+    
+    if (isStandalone && typeof window.ethereum !== 'undefined') {
+      // Running standalone (not in iframe) - connect directly
+      console.log('[VOICE] Standalone mode - connecting wallet directly');
+      
+      window.ethereum.request({ method: 'eth_requestAccounts' })
+        .then(accounts => {
+          if (accounts && accounts.length > 0) {
+            userAddress = accounts[0];
+            document.getElementById('status').textContent = `Connected: ${userAddress.slice(0, 6)}...`;
+          }
+        })
+        .catch(err => {
+          console.error('[VOICE] Wallet error:', err);
+          document.getElementById('status').textContent = 'Wallet connection failed';
+        });
+    } else if (!isStandalone) {
+      // Running in iframe - request from parent (existing code)
+      window.parent.postMessage({ type: 'AVAPILOT_WALLET_REQUEST' }, '*');
+    } else {
+      document.getElementById('status').textContent = 'No wallet detected';
+    }
+  </script>
+</body>
+</html>

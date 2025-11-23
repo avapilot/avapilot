@@ -1,0 +1,1 @@
+Option B: Build separate from day 1 (cleaner, but slower)
