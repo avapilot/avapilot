@@ -55,5 +55,5 @@ PHASE 2: Open source features
 Run setup after open source:
   cp .env.example .env
   # add your ANTHROPIC_API_KEY
-  pip install -r requirements.txt
+  cd backend/orchestrator && uv pip install -r requirements.txt
   python backend/orchestrator/main.py

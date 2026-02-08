@@ -8,3 +8,4 @@ web3
 requests
 pydantic>=2.10.0
 python-dotenv
+elevenlabs

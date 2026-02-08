@@ -859,16 +859,81 @@ def get_item_by_id(
                     "id": item_id,
                     "data": result['result']
                 }, indent=2)
-        
         except Exception as e:
             print(f"[GET_BY_ID] {func_name} failed: {e}")
             continue
-    
-    # None worked - return helpful error
-    return json.dumps({
-        "success": False,
-        "error": f"Could not find getter for '{item_name}' with ID {item_id}",
-        "tried_functions": variations,
-        "available_single_uint_getters": available_funcs,
-        "suggestion": f"Try: read_contract_function('{contract_address}', 'FUNCTION_NAME', [{item_id}])"
-    }, indent=2)
+
+    return json.dumps({"error": f"No matching function found for item type '{item_type}' with ID {item_id}"})
+
+
+# ============================================
+# TRANSACTION HISTORY
+# ============================================
+
+def get_transaction_history_impl(address: str, count: int = 10) -> list:
+    """Fetch last N transactions for an address from the block explorer."""
+    print(f"[TX_HISTORY] Fetching last {count} txs for {address}")
+
+    params = {
+        "module": "account",
+        "action": "txlist",
+        "address": address,
+        "startblock": 0,
+        "endblock": 99999999,
+        "page": 1,
+        "offset": count,
+        "sort": "desc",
+        "apikey": EXPLORER_API_KEY,
+    }
+
+    try:
+        resp = requests.get(EXPLORER_API_URL, params=params, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+
+        if data.get("status") != "1":
+            return [{"error": data.get("message", "No transactions found")}]
+
+        txs = []
+        for tx in data.get("result", [])[:count]:
+            value_wei = int(tx.get("value", "0"))
+            value_avax = value_wei / 1e18
+
+            txs.append({
+                "hash": tx["hash"],
+                "from": tx["from"],
+                "to": tx.get("to", "contract creation"),
+                "value_avax": f"{value_avax:.6f}",
+                "function": tx.get("functionName", "").split("(")[0] or "transfer",
+                "status": "success" if tx.get("isError") == "0" else "failed",
+                "timestamp": tx.get("timeStamp"),
+            })
+
+        print(f"[TX_HISTORY] Found {len(txs)} transactions")
+        return txs
+
+    except Exception as e:
+        print(f"[TX_HISTORY] Error: {e}")
+        return [{"error": str(e)}]
+
+
+@tool
+def get_transaction_history(address: str, count: int = 10) -> str:
+    """
+    Gets the last N transactions for a wallet or contract address.
+
+    Use when user asks:
+    - "Show my recent transactions"
+    - "What happened on this contract recently?"
+    - "Show last 5 transactions for 0x..."
+
+    Args:
+        address: Wallet or contract address
+        count: Number of transactions to return (default 10, max 50)
+
+    Returns:
+        JSON with list of transactions (hash, from, to, value, function, status)
+    """
+    count = min(count, 50)
+    txs = get_transaction_history_impl(address, count)
+    return json.dumps(txs, indent=2)

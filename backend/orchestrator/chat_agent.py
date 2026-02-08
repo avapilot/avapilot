@@ -18,6 +18,7 @@ from tools import (
     get_item_by_id,
     convert_wei_to_avax,
     get_insurance_details,
+    get_transaction_history,
 )
 from transaction_tool import generate_blockchain_transaction
 from agent_config import config
@@ -87,15 +88,26 @@ When user asks about contract data you don't know about:
 
 9. **get_insurance_details** - Specialized tool for insurance contracts
 
+10. **get_transaction_history** - Get last N transactions for any address
+    Use when user asks about recent activity on a wallet or contract.
+
 **Decision Guide:**
-- "Show me available X" → explore_contract_state FIRST!
-- "What does contract X do?" → analyze_contract
+- "Show me available X" → explore_contract_state FIRST, then suggest transactions
+- "What does contract X do?" → analyze_contract, then suggest what user can do
 - "Swap X for Y" → generate_blockchain_transaction
-- "What's my balance?" → read_contract_function + convert_wei_to_avax
+- "What's my balance?" → read_contract_function + convert_wei_to_avax, then suggest actions
+- "What can I do?" → explore_contract_state → suggest available transactions
 
 **For Transaction Requests:**
 - If user provides ALL details → immediately call generate_blockchain_transaction
 - If ANY detail is missing → ask the user
+
+**Transaction Suggestions (BE PROACTIVE):**
+When you discover contract capabilities (via explore_contract_state or analyze_contract),
+suggest actionable transactions the user can perform. Format suggestions as short options:
+- "You can **swap tokens**, **add liquidity**, or **check your position**. What would you like?"
+- After reading a balance, suggest: "Want to **transfer** some or **approve** a spender?"
+- Don't just dump data — always follow up with what the user can DO next.
 
 Be proactive! Don't ask permission to use tools — just use them.
 Be helpful, clear, and accurate!
@@ -117,6 +129,7 @@ def create_chat_agent():
         get_item_by_id,
         convert_wei_to_avax,
         get_insurance_details,
+        get_transaction_history,
     ]
 
     model = config.create_model("chat_agent", tools=tool_list)
