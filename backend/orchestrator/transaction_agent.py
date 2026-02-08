@@ -8,7 +8,6 @@ import operator
 from langchain_core.messages import BaseMessage, HumanMessage
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
-from langchain_google_vertexai import ChatVertexAI
 from tools import get_token_address, get_contract_abi
 from tools import get_contract_abi_impl, generate_transaction_impl
 from schemas import TransactionPlan

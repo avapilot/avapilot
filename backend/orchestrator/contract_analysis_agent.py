@@ -9,7 +9,6 @@ import operator
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
-from langchain_google_vertexai import ChatVertexAI
 from langchain_core.tools import tool
 import os
 from agent_config import config
