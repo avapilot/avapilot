@@ -21,6 +21,7 @@ from tools import (
 )
 from transaction_tool import generate_blockchain_transaction
 from agent_config import config
+from network_config import NETWORK_NAME
 
 # In-memory checkpointer — conversations reset on server restart
 MEMORY_SAVER = MemorySaver()
@@ -171,7 +172,7 @@ def create_chat_agent():
 **CURRENT CONTEXT:**
 - User's wallet address: `{user_address}`
 - Allowed contract: `{allowed_contract}`
-- Network: Avalanche Fuji Testnet
+- Network: {NETWORK_NAME}
 
 **IMPORTANT:** When calling `generate_blockchain_transaction`, pass:
   contract_address="{allowed_contract}", user_address="{user_address}"

@@ -12,21 +12,9 @@ import requests
 import json
 from web3 import Web3
 from contract_analyzer import identify_contract_type, explain_contract
-
-# mainnet
-# SNOWTRACE_API_URL = "https://api.snowtrace.io/api"
-# Snowtrace API configuration - TESTNET
-SNOWTRACE_API_URL = "https://api-testnet.snowtrace.io/api"  # ← CHANGED
-SNOWTRACE_API_KEY = "placeholder"
-
-# Hardcoded token addresses for Fuji Testnet
-FUJI_TOKEN_ADDRESSES = {
-    "WAVAX": "0x1d308089a2d1ced3f1ce36b1fcaf815b07217be3",
-    "USDC": "0x5425890298aed601595a70AB815c96711a31Bc65"
-}
-
-# RPC endpoint
-FUJI_RPC_URL = "https://api.avax-test.network/ext/bc/C/rpc"
+from network_config import (
+    RPC_URL, EXPLORER_API_URL, EXPLORER_API_KEY, TOKEN_ADDRESSES, NETWORK_NAME,
+)
 
 
 # ============================================
@@ -35,7 +23,7 @@ FUJI_RPC_URL = "https://api.avax-test.network/ext/bc/C/rpc"
 
 def get_token_address_impl(token_symbol: str) -> str:
     """Implementation that can be called from Python directly"""
-    address = FUJI_TOKEN_ADDRESSES.get(token_symbol.upper(), "Error: Token not found.")
+    address = TOKEN_ADDRESSES.get(token_symbol.upper(), "Error: Token not found.")
     print(f"  [IMPL] get_token_address({token_symbol}) → {address}")
     return address
 
@@ -48,11 +36,11 @@ def get_contract_abi_impl(contract_address: str) -> str:
         "module": "contract",
         "action": "getabi",
         "address": contract_address,
-        "apikey": SNOWTRACE_API_KEY
+        "apikey": EXPLORER_API_KEY
     }
 
     try:
-        response = requests.get(SNOWTRACE_API_URL, params=params)
+        response = requests.get(EXPLORER_API_URL, params=params)
         response.raise_for_status()
         data = response.json()
 
@@ -231,7 +219,7 @@ def generate_transaction_impl(
 @tool
 def get_token_address(token_symbol: str) -> str:
     """
-    Finds the contract address for a given token symbol on the Fuji Testnet.
+    Finds the contract address for a given token symbol on the current network.
     Supports: WAVAX, USDC
     
     Args:
@@ -390,11 +378,11 @@ def get_source_code_impl(contract_address: str) -> str:
         "module": "contract",
         "action": "getsourcecode",
         "address": contract_address,
-        "apikey": SNOWTRACE_API_KEY
+        "apikey": EXPLORER_API_KEY
     }
     
     try:
-        response = requests.get(SNOWTRACE_API_URL, params=params)
+        response = requests.get(EXPLORER_API_URL, params=params)
         response.raise_for_status()
         data = response.json()
         
@@ -449,13 +437,13 @@ def read_contract_function_impl(
     
     try:
         # Connect to RPC
-        w3 = Web3(Web3.HTTPProvider(FUJI_RPC_URL))
+        w3 = Web3(Web3.HTTPProvider(RPC_URL))
         if not w3.is_connected():
             error = "RPC connection failed"
             print(f"  ✗ {error}")
             return {"success": False, "error": error}
         
-        print(f"  ✓ Connected to Avalanche Fuji")
+        print(f"  ✓ Connected to {NETWORK_NAME}")
         
         # Get ABI
         abi = get_contract_abi_impl(contract_address)
