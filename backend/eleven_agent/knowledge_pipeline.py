@@ -8,6 +8,7 @@ Usage:
 import os
 import sys
 import json
+import requests as http_requests
 
 # Add orchestrator to path for reuse
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "orchestrator"))
@@ -16,10 +17,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from elevenlabs import ElevenLabs
 from network_config import NETWORK_NAME, EXPLORER_API_URL, EXPLORER_API_KEY
 from tools import get_contract_abi_impl, get_source_code_impl
 from contract_analyzer import identify_contract_type
+
+# Local storage for knowledge docs
+KB_DIR = os.path.join(os.path.dirname(__file__), "knowledge_base")
 
 
 def analyze_contract(contract_address: str) -> str:
@@ -72,7 +75,6 @@ def analyze_contract(contract_address: str) -> str:
 """
 
     if has_source:
-        # Truncate to keep knowledge doc reasonable
         truncated = source_code[:8000] if len(source_code) > 8000 else source_code
         doc += f"""
 ## Source Code (truncated)
@@ -85,12 +87,23 @@ def analyze_contract(contract_address: str) -> str:
     return doc
 
 
+def save_local(contract_address: str, knowledge_text: str) -> str:
+    """Save knowledge doc as .md file locally."""
+    os.makedirs(KB_DIR, exist_ok=True)
+    short = f"{contract_address[:6]}_{contract_address[-4:]}"
+    filepath = os.path.join(KB_DIR, f"{short}.md")
+    with open(filepath, "w") as f:
+        f.write(knowledge_text)
+    print(f"[KB] Saved locally: {filepath}")
+    return filepath
+
+
 def push_to_elevenlabs(
     contract_address: str,
     knowledge_text: str,
     agent_id: str = None,
 ) -> str:
-    """Push knowledge doc to ElevenLabs and return the document ID."""
+    """Push knowledge doc to ElevenLabs agent via REST API."""
 
     api_key = os.getenv("ELEVENLABS_API_KEY")
     if not api_key or api_key == "ROTATE_ME":
@@ -100,60 +113,72 @@ def push_to_elevenlabs(
     if not agent_id:
         raise RuntimeError("Set ELEVENLABS_AGENT_ID in .env")
 
-    client = ElevenLabs(api_key=api_key)
+    headers = {"xi-api-key": api_key, "Content-Type": "application/json"}
+    base = "https://api.elevenlabs.io"
 
-    # 1. Create knowledge base document
     short_addr = f"{contract_address[:6]}...{contract_address[-4:]}"
     doc_name = f"Contract: {short_addr}"
 
-    print(f"[KB] Uploading to ElevenLabs as '{doc_name}'...")
-    result = client.conversational_ai.knowledge_base.documents.create_from_text(
-        text=knowledge_text,
-        name=doc_name,
+    # 1. Create document from text
+    print(f"[KB] Creating document '{doc_name}'...")
+    resp = http_requests.post(
+        f"{base}/v1/convai/knowledge-base/text",
+        headers=headers,
+        json={"text": knowledge_text, "name": doc_name},
     )
-    doc_id = result.id
+    resp.raise_for_status()
+    doc_id = resp.json()["id"]
     print(f"[KB] Created document: {doc_id}")
 
-    # 2. Get current agent config
-    print(f"[KB] Updating agent {agent_id}...")
-    agent = client.conversational_ai.agents.get(agent_id=agent_id)
+    # 2. Get current agent knowledge base
+    print(f"[KB] Fetching agent {agent_id}...")
+    resp = http_requests.get(f"{base}/v1/convai/agents/{agent_id}", headers=headers)
+    resp.raise_for_status()
+    agent_data = resp.json()
 
-    # 3. Build updated knowledge base list (keep existing + add new)
     existing_kb = []
-    if (
-        agent.conversation_config
-        and agent.conversation_config.agent
-        and agent.conversation_config.agent.prompt
-        and agent.conversation_config.agent.prompt.knowledge_base
-    ):
-        existing_kb = [
-            {"id": kb.id, "type": kb.type, "name": kb.name}
-            for kb in agent.conversation_config.agent.prompt.knowledge_base
-        ]
+    try:
+        kb_list = agent_data["conversation_config"]["agent"]["prompt"]["knowledge_base"]
+        existing_kb = [{"id": kb["id"], "type": kb["type"], "name": kb["name"]} for kb in kb_list]
+    except (KeyError, TypeError):
+        pass
 
     existing_kb.append({"id": doc_id, "type": "text", "name": doc_name})
 
-    # 4. Patch agent with updated knowledge base
-    client.conversational_ai.agents.update(
-        agent_id=agent_id,
-        conversation_config={
-            "agent": {
-                "prompt": {
-                    "knowledge_base": existing_kb,
+    # 3. Patch agent with updated knowledge base
+    print(f"[KB] Linking {len(existing_kb)} docs to agent...")
+    resp = http_requests.patch(
+        f"{base}/v1/convai/agents/{agent_id}",
+        headers=headers,
+        json={
+            "conversation_config": {
+                "agent": {
+                    "prompt": {
+                        "knowledge_base": existing_kb,
+                    }
                 }
             }
         },
     )
+    if resp.status_code >= 400:
+        print(f"[KB] ERROR: {resp.status_code} — {resp.text}")
+        resp.raise_for_status()
 
-    print(f"[KB] Agent updated — now has {len(existing_kb)} knowledge docs")
+    print(f"[KB] Agent updated — {len(existing_kb)} knowledge docs linked")
     return doc_id
 
 
 def run(contract_address: str, agent_id: str = None) -> dict:
-    """Full pipeline: analyze contract → push to ElevenLabs."""
+    """Full pipeline: analyze contract → save locally → push to ElevenLabs."""
     knowledge_text = analyze_contract(contract_address)
+    local_path = save_local(contract_address, knowledge_text)
     doc_id = push_to_elevenlabs(contract_address, knowledge_text, agent_id)
-    return {"document_id": doc_id, "contract": contract_address, "chars": len(knowledge_text)}
+    return {
+        "document_id": doc_id,
+        "contract": contract_address,
+        "local_file": local_path,
+        "chars": len(knowledge_text),
+    }
 
 
 if __name__ == "__main__":
