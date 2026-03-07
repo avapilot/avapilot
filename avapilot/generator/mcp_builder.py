@@ -7,6 +7,7 @@ import json
 import os
 import re
 from .analyzer import categorize_functions, identify_contract_type, solidity_type_to_python, function_to_tool_name
+from .avalanche import get_known_contract_info
 
 
 def generate_mcp_server(
@@ -34,7 +35,8 @@ def generate_mcp_server(
     categories = categorize_functions(abi)
     
     if not name:
-        name = f"{contract_type['description']} ({address[:8]}...)"
+        known = get_known_contract_info(address)
+        name = known["name"] if known else f"{contract_type['description']} ({address[:8]}...)"
 
     # Generate files
     _write_server_py(output_dir, address, chain, name, abi, categories, contract_data, contract_type)

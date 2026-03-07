@@ -21,7 +21,11 @@ def cmd_generate(args):
     from avapilot.generator.mcp_builder import generate_mcp_server
     from avapilot.generator.analyzer import identify_contract_type, categorize_functions
 
-    address = args.address
+    from avapilot.generator.avalanche import resolve_dapp_name, get_known_contract_info
+    raw = args.address
+    address = resolve_dapp_name(raw) or raw
+    if address != raw:
+        print(f"   Resolved \"{raw}\" → {address}")
     chain = args.chain
     output = args.output or f"./{address[:10]}-mcp"
     name = args.name
@@ -108,7 +112,7 @@ def cmd_publish(args):
 def main():
     parser = argparse.ArgumentParser(
         prog="avapilot",
-        description="AvaPilot — Smart Contract MCP Generator for Avalanche",
+        description="AvaPilot — MCP Server Generator for Avalanche dApps",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
