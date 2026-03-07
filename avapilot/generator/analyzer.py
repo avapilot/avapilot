@@ -113,6 +113,8 @@ def solidity_type_to_python(sol_type: str) -> str:
 def function_to_tool_name(func_name: str) -> str:
     """Convert camelCase function name to snake_case tool name."""
     import re
-    # Insert underscore before uppercase letters
-    s1 = re.sub(r"([A-Z])", r"_\1", func_name)
-    return s1.lower().strip("_")
+    # Insert underscore before uppercase runs (keeps acronyms together)
+    # "swapExactAVAXForTokens" → "swap_exact_AVAX_for_tokens" → "swap_exact_avax_for_tokens"
+    s1 = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", func_name)
+    s2 = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", s1)
+    return s2.lower().strip("_")

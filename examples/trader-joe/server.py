@@ -55,7 +55,7 @@ mcp = FastMCP("Trader Joe Router")
 
 # ═══ Read Functions ═══
 @mcp.tool()
-def w_a_v_a_x() -> str:
+def wavax() -> str:
     """Read WAVAX from contract.
     
     Args:
@@ -233,7 +233,7 @@ def add_liquidity(tokenA: str, tokenB: str, amountADesired: int, amountBDesired:
 
 
 @mcp.tool()
-def add_liquidity_a_v_a_x(token: str, amountTokenDesired: int, amountTokenMin: int, amountAVAXMin: int, to: str, deadline: int, value_wei: int = 0) -> str:
+def add_liquidity_avax(token: str, amountTokenDesired: int, amountTokenMin: int, amountAVAXMin: int, to: str, deadline: int, value_wei: int = 0) -> str:
     """Build transaction for addLiquidityAVAX.
     
     Returns an unsigned transaction object. The user must sign and broadcast it.
@@ -301,7 +301,7 @@ def remove_liquidity(tokenA: str, tokenB: str, liquidity: int, amountAMin: int, 
 
 
 @mcp.tool()
-def remove_liquidity_a_v_a_x(token: str, liquidity: int, amountTokenMin: int, amountAVAXMin: int, to: str, deadline: int) -> str:
+def remove_liquidity_avax(token: str, liquidity: int, amountTokenMin: int, amountAVAXMin: int, to: str, deadline: int) -> str:
     """Build transaction for removeLiquidityAVAX.
     
     Returns an unsigned transaction object. The user must sign and broadcast it.
@@ -334,7 +334,7 @@ def remove_liquidity_a_v_a_x(token: str, liquidity: int, amountTokenMin: int, am
 
 
 @mcp.tool()
-def remove_liquidity_a_v_a_x_supporting_fee_on_transfer_tokens(token: str, liquidity: int, amountTokenMin: int, amountAVAXMin: int, to: str, deadline: int) -> str:
+def remove_liquidity_avax_supporting_fee_on_transfer_tokens(token: str, liquidity: int, amountTokenMin: int, amountAVAXMin: int, to: str, deadline: int) -> str:
     """Build transaction for removeLiquidityAVAXSupportingFeeOnTransferTokens.
     
     Returns an unsigned transaction object. The user must sign and broadcast it.
@@ -367,7 +367,7 @@ def remove_liquidity_a_v_a_x_supporting_fee_on_transfer_tokens(token: str, liqui
 
 
 @mcp.tool()
-def remove_liquidity_a_v_a_x_with_permit(token: str, liquidity: int, amountTokenMin: int, amountAVAXMin: int, to: str, deadline: int, approveMax: bool, v: int, r: str, s: str) -> str:
+def remove_liquidity_avax_with_permit(token: str, liquidity: int, amountTokenMin: int, amountAVAXMin: int, to: str, deadline: int, approveMax: bool, v: int, r: str, s: str) -> str:
     """Build transaction for removeLiquidityAVAXWithPermit.
     
     Returns an unsigned transaction object. The user must sign and broadcast it.
@@ -404,7 +404,7 @@ def remove_liquidity_a_v_a_x_with_permit(token: str, liquidity: int, amountToken
 
 
 @mcp.tool()
-def remove_liquidity_a_v_a_x_with_permit_supporting_fee_on_transfer_tokens(token: str, liquidity: int, amountTokenMin: int, amountAVAXMin: int, to: str, deadline: int, approveMax: bool, v: int, r: str, s: str) -> str:
+def remove_liquidity_avax_with_permit_supporting_fee_on_transfer_tokens(token: str, liquidity: int, amountTokenMin: int, amountAVAXMin: int, to: str, deadline: int, approveMax: bool, v: int, r: str, s: str) -> str:
     """Build transaction for removeLiquidityAVAXWithPermitSupportingFeeOnTransferTokens.
     
     Returns an unsigned transaction object. The user must sign and broadcast it.
@@ -479,7 +479,7 @@ def remove_liquidity_with_permit(tokenA: str, tokenB: str, liquidity: int, amoun
 
 
 @mcp.tool()
-def swap_a_v_a_x_for_exact_tokens(amountOut: int, path: list[str], to: str, deadline: int, value_wei: int = 0) -> str:
+def swap_avax_for_exact_tokens(amountOut: int, path: list[str], to: str, deadline: int, value_wei: int = 0) -> str:
     """Build transaction for swapAVAXForExactTokens.
     
     Returns an unsigned transaction object. The user must sign and broadcast it.
@@ -511,7 +511,7 @@ def swap_a_v_a_x_for_exact_tokens(amountOut: int, path: list[str], to: str, dead
 
 
 @mcp.tool()
-def swap_exact_a_v_a_x_for_tokens(amountOutMin: int, path: list[str], to: str, deadline: int, value_wei: int = 0) -> str:
+def swap_exact_avax_for_tokens(amountOutMin: int, path: list[str], to: str, deadline: int, value_wei: int = 0) -> str:
     """Build transaction for swapExactAVAXForTokens.
     
     Returns an unsigned transaction object. The user must sign and broadcast it.
@@ -543,7 +543,7 @@ def swap_exact_a_v_a_x_for_tokens(amountOutMin: int, path: list[str], to: str, d
 
 
 @mcp.tool()
-def swap_exact_a_v_a_x_for_tokens_supporting_fee_on_transfer_tokens(amountOutMin: int, path: list[str], to: str, deadline: int, value_wei: int = 0) -> str:
+def swap_exact_avax_for_tokens_supporting_fee_on_transfer_tokens(amountOutMin: int, path: list[str], to: str, deadline: int, value_wei: int = 0) -> str:
     """Build transaction for swapExactAVAXForTokensSupportingFeeOnTransferTokens.
     
     Returns an unsigned transaction object. The user must sign and broadcast it.
@@ -575,7 +575,7 @@ def swap_exact_a_v_a_x_for_tokens_supporting_fee_on_transfer_tokens(amountOutMin
 
 
 @mcp.tool()
-def swap_exact_tokens_for_a_v_a_x(amountIn: int, amountOutMin: int, path: list[str], to: str, deadline: int) -> str:
+def swap_exact_tokens_for_avax(amountIn: int, amountOutMin: int, path: list[str], to: str, deadline: int) -> str:
     """Build transaction for swapExactTokensForAVAX.
     
     Returns an unsigned transaction object. The user must sign and broadcast it.
@@ -607,7 +607,7 @@ def swap_exact_tokens_for_a_v_a_x(amountIn: int, amountOutMin: int, path: list[s
 
 
 @mcp.tool()
-def swap_exact_tokens_for_a_v_a_x_supporting_fee_on_transfer_tokens(amountIn: int, amountOutMin: int, path: list[str], to: str, deadline: int) -> str:
+def swap_exact_tokens_for_avax_supporting_fee_on_transfer_tokens(amountIn: int, amountOutMin: int, path: list[str], to: str, deadline: int) -> str:
     """Build transaction for swapExactTokensForAVAXSupportingFeeOnTransferTokens.
     
     Returns an unsigned transaction object. The user must sign and broadcast it.
@@ -703,7 +703,7 @@ def swap_exact_tokens_for_tokens_supporting_fee_on_transfer_tokens(amountIn: int
 
 
 @mcp.tool()
-def swap_tokens_for_exact_a_v_a_x(amountOut: int, amountInMax: int, path: list[str], to: str, deadline: int) -> str:
+def swap_tokens_for_exact_avax(amountOut: int, amountInMax: int, path: list[str], to: str, deadline: int) -> str:
     """Build transaction for swapTokensForExactAVAX.
     
     Returns an unsigned transaction object. The user must sign and broadcast it.

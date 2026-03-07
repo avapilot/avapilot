@@ -65,10 +65,10 @@ def cmd_generate(args):
     print()
     print("📋 Next steps:")
     print(f"   cd {output}")
-    print(f"   pip install -r requirements.txt")
-    print(f"   python server.py")
+    print(f"   uv run server.py")
     print()
-    print("   Then connect to Claude Desktop or OpenClaw. See README.md for details.")
+    print("   Or: pip install -r requirements.txt && python server.py")
+    print("   See README.md for Claude Desktop / OpenClaw setup.")
 
 
 def cmd_serve(args):
