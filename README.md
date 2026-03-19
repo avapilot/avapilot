@@ -24,6 +24,67 @@ python server.py
 
 Your AI agent can now swap tokens, check prices, and add liquidity on Trader Joe.
 
+## Avalanche-Native Features
+
+AvaPilot goes beyond EVM contract wrappers — it includes **built-in tools** for the Avalanche network itself. No contract address needed.
+
+### Built-in MCP Tools (no contract needed)
+
+```bash
+# Start the built-in Avalanche tools server
+uv run python cli.py tools
+```
+
+This gives your AI agent instant access to:
+- **Network info** — P-Chain height, supply, blockchain count
+- **L1 chains** — list and query all Avalanche L1s via Glacier
+- **Validators & staking** — current validators, stake amounts, uptime
+- **Balances** — native + ERC-20 + NFT balances on any Avalanche chain
+- **Token transfers** — recent transfer history
+- **Cross-chain** — blockchain status, subnet info
+
+### Network Info
+
+```bash
+# Quick network overview
+uv run python cli.py info
+```
+
+```
+🔺 Avalanche Network Info
+
+   P-Chain height:    42,156,789
+   Validators:        1,784
+   Current supply:    443,215,678.12 AVAX
+   Total staked:      265,432,100.50 AVAX
+   Blockchains:       156
+   Subnets:           89
+   L1 chains:         12 (via Glacier)
+```
+
+### P-Chain Integration
+
+Direct access to the Avalanche P-Chain API for subnet, validator, and staking data — the core of Avalanche's multi-chain architecture.
+
+### Glacier Data API
+
+Query the Glacier indexer for balances, transfers, validators, and L1 chain data across all Avalanche chains. Works with C-Chain and any L1.
+
+### Connect built-in tools to Claude Desktop
+
+```json
+{
+  "mcpServers": {
+    "avalanche": {
+      "command": "uv",
+      "args": ["run", "python", "/path/to/avapilot/cli.py", "tools"]
+    }
+  }
+}
+```
+
+Now ask Claude: *"How many validators are on Avalanche? What L1 chains exist?"*
+
 ## What It Does
 
 ```
@@ -143,6 +204,7 @@ AvaPilot automatically identifies contract types:
 ```
 avapilot/
 ├── avapilot/
+│   ├── avalanche/       ← P-Chain, Glacier API, built-in MCP tools
 │   ├── generator/       ← ABI → MCP server code generation
 │   ├── runtime/         ← shared EVM interaction + chain config
 │   └── marketplace/     ← browse/publish MCP servers

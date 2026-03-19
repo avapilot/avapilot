@@ -43,6 +43,22 @@ AVALANCHE_DAPPS = {
 }
 
 
+# P-Chain RPC endpoints
+PCHAIN_RPC = {
+    "mainnet": "https://api.avax.network/ext/bc/P",
+    "fuji": "https://api.avax-test.network/ext/bc/P",
+}
+
+# Info API endpoints
+INFO_API = {
+    "mainnet": "https://api.avax.network/ext/info",
+    "fuji": "https://api.avax-test.network/ext/info",
+}
+
+# Glacier Data API
+GLACIER_API_URL = "https://glacier-api.avax.network"
+
+
 def get_chain_config(chain: str = "avalanche") -> dict:
     """Get chain configuration by name."""
     chain = chain.lower()

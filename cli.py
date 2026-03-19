@@ -82,6 +82,70 @@ def cmd_serve(args):
     uvicorn.run(app, host="0.0.0.0", port=port)
 
 
+def cmd_tools(args):
+    """Start the built-in Avalanche MCP tools server."""
+    from avapilot.avalanche.tools import run_server
+
+    print("🔺 Starting AvaPilot Avalanche Tools (MCP server)...")
+    print("   Built-in tools: network info, validators, balances, L1 chains, staking")
+    print()
+    run_server()
+
+
+def cmd_info(args):
+    """Print Avalanche network info."""
+    from avapilot.avalanche import pchain, glacier
+
+    print("🔺 Avalanche Network Info")
+    print()
+
+    try:
+        height = pchain.get_height()
+        print(f"   P-Chain height:    {height:,}")
+    except Exception as e:
+        print(f"   P-Chain height:    error ({e})")
+
+    try:
+        validators = pchain.get_current_validators()
+        print(f"   Validators:        {len(validators):,}")
+    except Exception as e:
+        print(f"   Validators:        error ({e})")
+
+    try:
+        supply = pchain.get_current_supply()
+        avax = int(supply) / 1e9
+        print(f"   Current supply:    {avax:,.2f} AVAX")
+    except Exception as e:
+        print(f"   Current supply:    error ({e})")
+
+    try:
+        total = pchain.get_total_stake()
+        staked_avax = int(total) / 1e9
+        print(f"   Total staked:      {staked_avax:,.2f} AVAX")
+    except Exception as e:
+        print(f"   Total staked:      error ({e})")
+
+    try:
+        blockchains = pchain.get_blockchains()
+        print(f"   Blockchains:       {len(blockchains)}")
+    except Exception as e:
+        print(f"   Blockchains:       error ({e})")
+
+    try:
+        subnets = pchain.get_subnets()
+        print(f"   Subnets:           {len(subnets)}")
+    except Exception as e:
+        print(f"   Subnets:           error ({e})")
+
+    try:
+        chains = glacier.list_chains()
+        print(f"   L1 chains:         {len(chains)} (via Glacier)")
+    except Exception as e:
+        print(f"   L1 chains:         error ({e})")
+
+    print()
+
+
 def cmd_publish(args):
     """Publish an MCP server to the marketplace."""
     import requests as http_requests
@@ -129,6 +193,14 @@ def main():
     srv = subparsers.add_parser("serve", help="Start marketplace server")
     srv.add_argument("--port", "-p", type=int, default=3000, help="Port (default: 3000)")
     srv.set_defaults(func=cmd_serve)
+
+    # tools
+    tools = subparsers.add_parser("tools", help="Start built-in Avalanche MCP tools server")
+    tools.set_defaults(func=cmd_tools)
+
+    # info
+    info = subparsers.add_parser("info", help="Print Avalanche network info")
+    info.set_defaults(func=cmd_info)
 
     # publish
     pub = subparsers.add_parser("publish", help="Publish MCP server to marketplace")
