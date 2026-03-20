@@ -55,18 +55,40 @@ TRADER_JOE_ROUTER_ABI = [
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 
+
+_w3_cache: dict[str, Web3] = {}
+
 def _get_w3(chain: str = "avalanche") -> Web3:
-    """Get a connected Web3 instance."""
+    """Get a Web3 instance (cached, lazy connection)."""
+    if chain in _w3_cache:
+        return _w3_cache[chain]
     config = get_chain_config(chain)
-    w3 = Web3(Web3.HTTPProvider(config["rpc_url"]))
-    if not w3.is_connected():
-        raise ConnectionError(f"Cannot connect to RPC: {config['rpc_url']}")
+    # Try primary, fall back to alternative public RPC
+    rpcs = [config['rpc_url']]
+    if chain == 'avalanche':
+        rpcs.append('https://avalanche-c-chain-rpc.publicnode.com')
+        rpcs.append('https://avax.meowrpc.com')
+    elif chain == 'fuji':
+        rpcs.append('https://avalanche-fuji-c-chain-rpc.publicnode.com')
+    for rpc in rpcs:
+        try:
+            w3 = Web3(Web3.HTTPProvider(rpc, request_kwargs={"timeout": 15}))
+            w3.eth.chain_id  # test connectivity
+            _w3_cache[chain] = w3
+            return w3
+        except Exception:
+            continue
+    # Last resort: return without testing (will fail on actual call)
+    w3 = Web3(Web3.HTTPProvider(rpcs[0], request_kwargs={"timeout": 30}))
+    _w3_cache[chain] = w3
     return w3
 
 
 def _resolve_token(symbol_or_address: str) -> str:
     """Resolve a token symbol or address to a checksummed address."""
     upper = symbol_or_address.upper()
+    if upper == "AVAX":
+        upper = "WAVAX"
     if upper in AVALANCHE_TOKENS:
         return Web3.to_checksum_address(AVALANCHE_TOKENS[upper])
     # Check case-sensitive keys (e.g., BTC.b, WETH.e)
@@ -97,9 +119,10 @@ def _token_decimals(token_address: str, w3: Web3) -> int:
     return contract.functions.decimals().call()
 
 
-def _to_token_units(amount: float, decimals: int) -> int:
+def _to_token_units(amount, decimals: int) -> int:
     """Convert human-readable amount to token base units."""
-    return int(amount * (10**decimals))
+    from decimal import Decimal
+    return int(Decimal(str(amount)) * Decimal(10**decimals))
 
 
 def _from_token_units(raw: int, decimals: int) -> float:
