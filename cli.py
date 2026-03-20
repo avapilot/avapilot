@@ -83,14 +83,20 @@ def cmd_serve(args):
 
 
 def cmd_tools(args):
-    """Start the Full Avalanche MCP Gateway."""
-    from avapilot.avalanche.tools import run_server
+    """Start the Avalanche MCP Gateway in the selected mode."""
+    from avapilot.avalanche.gateway import create_gateway
 
-    print("🔺 Starting Full Avalanche MCP Gateway...")
-    print("   Wallet, send/swap/wrap, contract read/write/deploy, gas, L1 cross-chain")
-    print("   Network info, validators, balances, staking, token tools")
+    mode = args.mode
+    labels = {
+        "read": "READ mode — safe queries only, no wallet needed",
+        "trade": "TRADE mode — read + send/swap/approve (wallet required)",
+        "full": "FULL mode — everything including deploy/write contracts",
+    }
+    print(f"🔺 Starting Avalanche MCP Gateway")
+    print(f"   {labels[mode]}")
     print()
-    run_server()
+    gateway = create_gateway(mode)
+    gateway.run()
 
 
 def cmd_info(args):
@@ -196,10 +202,22 @@ def main():
     srv.set_defaults(func=cmd_serve)
 
     # tools / gateway
-    tools = subparsers.add_parser("tools", help="Start the Full Avalanche MCP Gateway")
+    tools = subparsers.add_parser("tools", help="Start the Avalanche MCP Gateway")
+    tools.add_argument(
+        "--mode", "-m",
+        choices=["read", "trade", "full"],
+        default="read",
+        help="Capability mode: read (default), trade, or full",
+    )
     tools.set_defaults(func=cmd_tools)
 
-    gateway = subparsers.add_parser("gateway", help="Start the Full Avalanche MCP Gateway (alias for tools)")
+    gateway = subparsers.add_parser("gateway", help="Start the Avalanche MCP Gateway (alias for tools)")
+    gateway.add_argument(
+        "--mode", "-m",
+        choices=["read", "trade", "full"],
+        default="read",
+        help="Capability mode: read (default), trade, or full",
+    )
     gateway.set_defaults(func=cmd_tools)
 
     # info
