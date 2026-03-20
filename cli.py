@@ -83,11 +83,12 @@ def cmd_serve(args):
 
 
 def cmd_tools(args):
-    """Start the built-in Avalanche MCP tools server."""
+    """Start the Full Avalanche MCP Gateway."""
     from avapilot.avalanche.tools import run_server
 
-    print("🔺 Starting AvaPilot Avalanche Tools (MCP server)...")
-    print("   Built-in tools: network info, validators, balances, L1 chains, staking")
+    print("🔺 Starting Full Avalanche MCP Gateway...")
+    print("   Wallet, send/swap/wrap, contract read/write/deploy, gas, L1 cross-chain")
+    print("   Network info, validators, balances, staking, token tools")
     print()
     run_server()
 
@@ -194,9 +195,12 @@ def main():
     srv.add_argument("--port", "-p", type=int, default=3000, help="Port (default: 3000)")
     srv.set_defaults(func=cmd_serve)
 
-    # tools
-    tools = subparsers.add_parser("tools", help="Start built-in Avalanche MCP tools server")
+    # tools / gateway
+    tools = subparsers.add_parser("tools", help="Start the Full Avalanche MCP Gateway")
     tools.set_defaults(func=cmd_tools)
+
+    gateway = subparsers.add_parser("gateway", help="Start the Full Avalanche MCP Gateway (alias for tools)")
+    gateway.set_defaults(func=cmd_tools)
 
     # info
     info = subparsers.add_parser("info", help="Print Avalanche network info")

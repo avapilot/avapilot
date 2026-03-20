@@ -24,66 +24,86 @@ python server.py
 
 Your AI agent can now swap tokens, check prices, and add liquidity on Trader Joe.
 
-## Avalanche-Native Features
+## Full Avalanche MCP Gateway
 
-AvaPilot goes beyond EVM contract wrappers — it includes **built-in tools** for the Avalanche network itself. No contract address needed.
-
-### Built-in MCP Tools (no contract needed)
+AvaPilot includes a **full MCP gateway** that gives AI agents complete read/write access to the Avalanche network. No contract generation needed.
 
 ```bash
-# Start the built-in Avalanche tools server
-uv run python cli.py tools
+# Start the gateway
+uv run python cli.py gateway   # or: cli.py tools
 ```
 
-This gives your AI agent instant access to:
-- **Network info** — P-Chain height, supply, blockchain count
-- **L1 chains** — list and query all Avalanche L1s via Glacier
-- **Validators & staking** — current validators, stake amounts, uptime
-- **Balances** — native + ERC-20 + NFT balances on any Avalanche chain
-- **Token transfers** — recent transfer history
-- **Cross-chain** — blockchain status, subnet info
+### Wallet Setup
 
-### Network Info
+Set one environment variable to enable write operations (send, swap, deploy):
 
 ```bash
-# Quick network overview
-uv run python cli.py info
+export AVAPILOT_PRIVATE_KEY=0xYourPrivateKeyHere
 ```
 
-```
-🔺 Avalanche Network Info
+Or use an encrypted keystore:
 
-   P-Chain height:    42,156,789
-   Validators:        1,784
-   Current supply:    443,215,678.12 AVAX
-   Total staked:      265,432,100.50 AVAX
-   Blockchains:       156
-   Subnets:           89
-   L1 chains:         12 (via Glacier)
+```bash
+export AVAPILOT_KEYSTORE_PATH=/path/to/keystore.json
+export AVAPILOT_KEYSTORE_PASSWORD=your-password
 ```
 
-### P-Chain Integration
+### All Gateway Tools
 
-Direct access to the Avalanche P-Chain API for subnet, validator, and staking data — the core of Avalanche's multi-chain architecture.
+| Category | Tools |
+|----------|-------|
+| **Wallet** | `wallet_status`, `wallet_address` |
+| **Send/Transfer** | `send_avax`, `send_token`, `wrap_avax`, `unwrap_avax` |
+| **Tokens** | `approve_token`, `token_allowance`, `token_info` |
+| **DEX/Swaps** | `swap_exact_tokens`, `get_swap_quote`, `get_token_price` |
+| **Contracts** | `read_contract`, `write_contract`, `deploy_contract`, `get_contract_abi` |
+| **Gas** | `estimate_gas`, `gas_price` |
+| **Staking** | `avalanche_staking_info`, `estimate_staking_rewards` |
+| **Network** | `avalanche_network_info`, `avalanche_list_l1s`, `avalanche_get_l1_info` |
+| **Validators** | `avalanche_list_validators`, `avalanche_validator_info` |
+| **Balances** | `avalanche_get_balance`, `avalanche_get_nfts`, `avalanche_token_transfers` |
+| **L1/Subnet** | `avalanche_list_blockchains`, `avalanche_get_blockchain_status`, `get_l1_rpc`, `call_l1_contract` |
+| **Utility** | `resolve_address`, `tx_status`, `encode_function_call` |
 
-### Glacier Data API
+### Example: Swap 1 AVAX for USDC
 
-Query the Glacier indexer for balances, transfers, validators, and L1 chain data across all Avalanche chains. Works with C-Chain and any L1.
+```
+User: "Swap 1 AVAX for USDC"
+Agent calls: swap_exact_tokens(amount_in=1, token_in="AVAX", token_out="USDC")
+→ Signs, sends, and returns tx hash + amounts
+```
 
-### Connect built-in tools to Claude Desktop
+### Connect to Claude Desktop / OpenClaw
 
 ```json
 {
   "mcpServers": {
     "avalanche": {
       "command": "uv",
-      "args": ["run", "python", "/path/to/avapilot/cli.py", "tools"]
+      "args": ["run", "python", "/path/to/avapilot/cli.py", "gateway"],
+      "env": {
+        "AVAPILOT_PRIVATE_KEY": "0xYourPrivateKey"
+      }
     }
   }
 }
 ```
 
-Now ask Claude: *"How many validators are on Avalanche? What L1 chains exist?"*
+Now ask Claude: *"What's my AVAX balance? Swap 1 AVAX for USDC. Deploy this contract."*
+
+### Network Info
+
+```bash
+uv run python cli.py info
+```
+
+### P-Chain Integration
+
+Direct access to the Avalanche P-Chain API for subnet, validator, and staking data.
+
+### Glacier Data API
+
+Query the Glacier indexer for balances, transfers, validators, and L1 chain data across all Avalanche chains.
 
 ## What It Does
 
@@ -220,9 +240,10 @@ avapilot/
 
 ## Security
 
-- **No private keys** — AvaPilot never touches your wallet
-- **Unsigned transactions** — write tools return raw tx data, you sign and broadcast
-- **Read-only generation** — the generator only reads public ABI data from Snowtrace
+- **Wallet via env vars only** — private keys are loaded from `AVAPILOT_PRIVATE_KEY`, never hardcoded or logged
+- **Clear transaction summaries** — all write operations print what they will do before executing
+- **Human-readable amounts** — inputs use AVAX/token units, not raw wei, to prevent mistakes
+- **Read-only generation** — the MCP generator only reads public ABI data from Snowtrace
 - **Standalone output** — generated servers have no dependency on AvaPilot
 
 ## Contributing
