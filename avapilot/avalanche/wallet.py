@@ -6,6 +6,20 @@ Supports: AVAPILOT_PRIVATE_KEY or AVAPILOT_KEYSTORE_PATH + AVAPILOT_KEYSTORE_PAS
 """
 
 import os
+from pathlib import Path
+
+# Auto-load .env file from project root
+def _load_dotenv():
+    for p in [Path.cwd() / ".env", Path(__file__).resolve().parents[2] / ".env"]:
+        if p.exists():
+            for line in p.read_text().splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    os.environ.setdefault(k.strip(), v.strip())
+            break
+
+_load_dotenv()
 import json
 
 from web3 import Web3
