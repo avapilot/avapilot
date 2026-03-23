@@ -153,6 +153,128 @@ def cmd_info(args):
     print()
 
 
+def cmd_register(args):
+    """Register a service (dApp/contract) in the local registry."""
+    from avapilot.registry import ServiceRegistry
+
+    registry = ServiceRegistry()
+
+    name = args.name
+
+    # Build contracts list
+    addresses = [a.strip() for a in args.addresses.split(",")]
+    labels = [l.strip() for l in args.labels.split(",")] if args.labels else [f"contract{i}" for i in range(len(addresses))]
+
+    if len(labels) == 1 and len(addresses) == 1:
+        labels = ["main"]
+
+    contracts = [{"address": addr, "label": lbl} for addr, lbl in zip(addresses, labels)]
+
+    print(f"📝 Registering '{name}'...")
+    for c in contracts:
+        print(f"   {c['label']}: {c['address']}")
+
+    try:
+        service = registry.register(
+            name=name,
+            contracts=contracts,
+            chain=args.chain,
+            description=args.description or "",
+            category=args.category or "",
+            website=args.website or "",
+        )
+        print()
+        print(f"✅ Registered '{service.name}' (id: {service.id})")
+        print(f"   Category:    {service.category or '(none)'}")
+        print(f"   Contracts:   {len(service.contracts)}")
+        print(f"   Read tools:  {service.total_read_tools}")
+        print(f"   Write tools: {service.total_write_tools}")
+        for c in service.contracts:
+            print(f"   → {c.label}: {c.contract_type} ({len(c.read_functions)}R / {len(c.write_functions)}W)")
+    except Exception as e:
+        print(f"❌ Registration failed: {e}")
+        sys.exit(1)
+
+
+def cmd_services(args):
+    """List all registered services."""
+    from avapilot.registry import ServiceRegistry
+
+    registry = ServiceRegistry()
+    services = registry.list_services(
+        category=args.category,
+        search=args.search,
+    )
+
+    if not services:
+        print("No services registered. Run: python cli.py seed")
+        return
+
+    print(f"📦 Registered Services ({len(services)})")
+    print()
+    for s in services:
+        contracts = len(s.contracts)
+        print(f"  {s.name} [{s.category or 'uncategorized'}]")
+        print(f"    {s.description[:80]}" if s.description else "")
+        print(f"    {contracts} contract(s) — {s.total_read_tools}R / {s.total_write_tools}W tools")
+        print()
+
+
+def cmd_seed(args):
+    """Seed the registry with well-known Avalanche dApps."""
+    from avapilot.registry import ServiceRegistry
+    from avapilot.registry.seed import seed_registry
+
+    registry = ServiceRegistry()
+    print("🌱 Seeding registry with known Avalanche dApps...")
+    print()
+
+    added = seed_registry(registry)
+
+    if added:
+        for name in added:
+            print(f"   ✅ {name}")
+        print()
+        print(f"Added {len(added)} service(s).")
+    else:
+        print("   All services already registered.")
+
+
+def cmd_inspect(args):
+    """Inspect a registered service — show contracts and all tools."""
+    from avapilot.registry import ServiceRegistry
+
+    registry = ServiceRegistry()
+    service = registry.get_service(args.name)
+
+    if not service:
+        print(f"❌ Service '{args.name}' not found.")
+        sys.exit(1)
+
+    print(f"🔍 {service.name}")
+    print(f"   ID:          {service.id}")
+    print(f"   Category:    {service.category or '(none)'}")
+    print(f"   Description: {service.description}")
+    if service.website:
+        print(f"   Website:     {service.website}")
+    print(f"   Read tools:  {service.total_read_tools}")
+    print(f"   Write tools: {service.total_write_tools}")
+    print()
+
+    for c in service.contracts:
+        print(f"   📄 {c.label} — {c.address}")
+        print(f"      Type: {c.contract_type}")
+        if c.read_functions:
+            print(f"      Read:  {', '.join(c.read_functions[:10])}")
+            if len(c.read_functions) > 10:
+                print(f"             ... and {len(c.read_functions) - 10} more")
+        if c.write_functions:
+            print(f"      Write: {', '.join(c.write_functions[:10])}")
+            if len(c.write_functions) > 10:
+                print(f"             ... and {len(c.write_functions) - 10} more")
+        print()
+
+
 def cmd_publish(args):
     """Publish an MCP server to the marketplace."""
     import requests as http_requests
@@ -223,6 +345,32 @@ def main():
     # info
     info = subparsers.add_parser("info", help="Print Avalanche network info")
     info.set_defaults(func=cmd_info)
+
+    # register
+    reg = subparsers.add_parser("register", help="Register a service (dApp/contract)")
+    reg.add_argument("name", help="Service name (e.g. 'Trader Joe')")
+    reg.add_argument("addresses", help="Contract address(es), comma-separated")
+    reg.add_argument("--labels", help="Comma-separated labels for each address (e.g. router,factory)")
+    reg.add_argument("--chain", default="avalanche", help="Chain (default: avalanche)")
+    reg.add_argument("--description", "-d", help="Description")
+    reg.add_argument("--category", help="Category (DeFi, NFT, Gaming, Token, Infrastructure)")
+    reg.add_argument("--website", help="Website URL")
+    reg.set_defaults(func=cmd_register)
+
+    # services
+    svc = subparsers.add_parser("services", help="List registered services")
+    svc.add_argument("--category", help="Filter by category")
+    svc.add_argument("--search", "-s", help="Search by name or description")
+    svc.set_defaults(func=cmd_services)
+
+    # seed
+    sd = subparsers.add_parser("seed", help="Seed registry with known Avalanche dApps")
+    sd.set_defaults(func=cmd_seed)
+
+    # inspect
+    ins = subparsers.add_parser("inspect", help="Inspect a registered service")
+    ins.add_argument("name", help="Service name or ID")
+    ins.set_defaults(func=cmd_inspect)
 
     # publish
     pub = subparsers.add_parser("publish", help="Publish MCP server to marketplace")
