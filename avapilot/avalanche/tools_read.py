@@ -573,3 +573,169 @@ def register(mcp: FastMCP) -> None:
             "function": function_name,
             "calldata": calldata,
         }
+
+    # ── Contract Developer Tools ─────────────────────────────────────────
+
+    @mcp.tool()
+    def get_contract_events(
+        contract_address: str,
+        event_name: str | None = None,
+        from_block: int | None = None,
+        to_block: str = "latest",
+        chain: str = "avalanche",
+    ) -> dict:
+        """Get recent event logs from a contract. Optionally filter by event name. Returns last 1000 blocks by default."""
+        w3 = get_w3(chain)
+        addr = Web3.to_checksum_address(contract_address)
+        config = get_chain_config(chain)
+
+        if from_block is None:
+            current = w3.eth.block_number
+            from_block = max(0, current - 1000)
+
+        try:
+            if event_name:
+                # Fetch ABI and filter by event
+                abi = fetch_abi(addr, config["explorer_api"])
+                contract = w3.eth.contract(address=addr, abi=abi)
+                event = getattr(contract.events, event_name, None)
+                if not event:
+                    return {"error": f"Event '{event_name}' not found. Available: {[e.get('name') for e in abi if e.get('type') == 'event']}"}
+                logs = event().get_logs(fromBlock=from_block, toBlock=to_block)
+            else:
+                logs = w3.eth.get_logs({
+                    "address": addr,
+                    "fromBlock": from_block,
+                    "toBlock": to_block,
+                })
+
+            return {
+                "contract": addr,
+                "event_filter": event_name or "all",
+                "block_range": f"{from_block} → {to_block}",
+                "count": len(logs),
+                "logs": [
+                    {
+                        "blockNumber": log.get("blockNumber"),
+                        "transactionHash": log.get("transactionHash", b"").hex() if isinstance(log.get("transactionHash"), bytes) else str(log.get("transactionHash", "")),
+                        "args": dict(log.get("args", {})) if hasattr(log, "get") and log.get("args") else None,
+                    }
+                    for log in logs[:50]  # cap at 50
+                ],
+            }
+        except Exception as e:
+            return {"error": str(e)}
+
+    @mcp.tool()
+    def get_contract_source(contract_address: str, chain: str = "avalanche") -> dict:
+        """Check if a contract is verified on Snowtrace and return its source info."""
+        import requests
+        config = get_chain_config(chain)
+        addr = Web3.to_checksum_address(contract_address)
+        params = {
+            "module": "contract",
+            "action": "getsourcecode",
+            "address": addr,
+            "apikey": "YourApiKeyToken",
+        }
+        try:
+            resp = requests.get(config["explorer_api"], params=params, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+            if data.get("status") != "1" or not data.get("result"):
+                return {"verified": False, "address": addr}
+            info = data["result"][0]
+            return {
+                "verified": bool(info.get("SourceCode")),
+                "address": addr,
+                "contract_name": info.get("ContractName", ""),
+                "compiler": info.get("CompilerVersion", ""),
+                "optimization": info.get("OptimizationUsed", ""),
+                "license": info.get("LicenseType", ""),
+                "proxy": bool(info.get("Implementation")),
+                "implementation": info.get("Implementation", "") or None,
+                "abi_available": bool(info.get("ABI") and info["ABI"] != "Contract source code not verified"),
+            }
+        except Exception as e:
+            return {"error": str(e)}
+
+    @mcp.tool()
+    def is_contract(address: str, chain: str = "avalanche") -> dict:
+        """Check if an address is a contract or an EOA (externally owned account)."""
+        w3 = get_w3(chain)
+        addr = Web3.to_checksum_address(address)
+        code = w3.eth.get_code(addr)
+        is_contract = len(code) > 0
+        balance = w3.eth.get_balance(addr)
+        return {
+            "address": addr,
+            "is_contract": is_contract,
+            "code_size_bytes": len(code) if is_contract else 0,
+            "avax_balance": from_token_units(balance, 18),
+        }
+
+    @mcp.tool()
+    def get_block_info(block_number: str = "latest", chain: str = "avalanche") -> dict:
+        """Get block details — timestamp, gas used, transaction count."""
+        w3 = get_w3(chain)
+        block_id = block_number if block_number == "latest" else int(block_number)
+        try:
+            block = w3.eth.get_block(block_id)
+            return {
+                "number": block["number"],
+                "timestamp": block["timestamp"],
+                "gas_used": block["gasUsed"],
+                "gas_limit": block["gasLimit"],
+                "transaction_count": len(block["transactions"]),
+                "base_fee_gwei": block.get("baseFeePerGas", 0) / 1e9,
+                "hash": block["hash"].hex(),
+                "parent_hash": block["parentHash"].hex(),
+            }
+        except Exception as e:
+            return {"error": str(e)}
+
+    @mcp.tool()
+    def decode_tx(tx_hash: str, chain: str = "avalanche") -> dict:
+        """Decode a transaction — shows from, to, value, method called, gas used, status."""
+        w3 = get_w3(chain)
+        config = get_chain_config(chain)
+        try:
+            tx = w3.eth.get_transaction(tx_hash)
+            receipt = w3.eth.get_transaction_receipt(tx_hash)
+
+            result = {
+                "hash": tx_hash,
+                "from": tx["from"],
+                "to": tx.get("to"),
+                "value_avax": from_token_units(tx["value"], 18),
+                "gas_used": receipt["gasUsed"],
+                "gas_price_gwei": tx.get("gasPrice", 0) / 1e9,
+                "cost_avax": from_token_units(receipt["gasUsed"] * tx.get("gasPrice", 0), 18),
+                "status": "success" if receipt["status"] == 1 else "reverted",
+                "block": receipt["blockNumber"],
+                "input_data_size": len(tx.get("input", b"")),
+            }
+
+            # Try to decode function selector
+            input_data = tx.get("input", b"")
+            if len(input_data) >= 4:
+                selector = input_data[:4].hex()
+                result["method_selector"] = f"0x{selector}"
+
+                # Try fetching ABI to decode
+                if tx.get("to"):
+                    try:
+                        abi = fetch_abi(Web3.to_checksum_address(tx["to"]), config["explorer_api"])
+                        contract = w3.eth.contract(address=Web3.to_checksum_address(tx["to"]), abi=abi)
+                        func, args = contract.decode_function_input(input_data)
+                        result["method_name"] = func.fn_name
+                        result["method_args"] = {k: str(v) for k, v in args.items()}
+                    except:
+                        pass
+
+            # Log count
+            result["log_count"] = len(receipt.get("logs", []))
+
+            return result
+        except Exception as e:
+            return {"error": str(e)}

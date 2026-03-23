@@ -151,13 +151,45 @@ test("Fuji config", lambda: CHAINS["fuji"]["chain_id"] == 43113 or "wrong chain 
 test("Known tokens count", lambda: f"{len(AVALANCHE_TOKENS)} tokens")
 test("Known dApps count", lambda: f"{len(AVALANCHE_DAPPS)} dApps")
 
+# ── New Contract Developer Tools ──
+print("\n🔧 CONTRACT DEV TOOLS (new)")
+from avapilot.avalanche.gateway import create_gateway
+import asyncio
+g = create_gateway('read')
+t = g._tool_manager._tools
+
+test("is_contract (USDC)", lambda: (
+    r := asyncio.run(t['is_contract'].run({'address': '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E'})),
+    r['is_contract'] == True or "expected contract"
+)[-1])
+
+test("is_contract (EOA)", lambda: (
+    r := asyncio.run(t['is_contract'].run({'address': '0xCA385E3caFa97B00754607E9226dEbFb1e1e6841'})),
+    r['is_contract'] == False or "expected EOA"
+)[-1])
+
+test("get_contract_source (USDC)", lambda: (
+    r := asyncio.run(t['get_contract_source'].run({'contract_address': '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E'})),
+    f"verified={r['verified']} name={r['contract_name']} proxy={r['proxy']}"
+))
+
+test("get_block_info (latest)", lambda: (
+    r := asyncio.run(t['get_block_info'].run({})),
+    f"block {r['number']} txs={r['transaction_count']}"
+)[-1])
+
+test("Tool count: read=30", lambda: len(t) == 30 or f"got {len(t)}")
+
+
+
 # ── Summary ──
-print("\n" + "=" * 60)
+print()
+print("=" * 60)
 total = passed + failed
-print(f"🏁 Results: {passed} passed, {failed} failed ({total} total)")
+print(f"Results: {passed} passed, {failed} failed ({total} total)")
 if failed == 0:
-    print("🎉 All read-only tests passed! Zero gas spent.")
+    print("All read-only tests passed! Zero gas spent.")
 else:
-    print(f"⚠️  {failed} test(s) need attention")
+    print(f"{failed} test(s) need attention")
 print("=" * 60)
 sys.exit(1 if failed > 0 else 0)
