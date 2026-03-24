@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 from mcp.server.fastmcp import FastMCP
 
-from avapilot.avalanche import tools_read, tools_trade, tools_full
+from avapilot.avalanche import tools_read, tools_trade, tools_full, tools_platform
 
 MODES = {"read", "trade", "full"}
 
@@ -45,6 +45,13 @@ def create_gateway(mode: str = "read", registry_path: str | None = None, chain: 
         tools_trade.register(mcp, chain=chain)
     if mode == "full":
         tools_full.register(mcp, chain=chain)
+
+    # 1b. Platform tools (L1, staking, cross-chain) — trade and full modes
+    if mode in ("trade", "full"):
+        try:
+            tools_platform.register(mcp, chain=chain)
+        except Exception:
+            pass  # platform-cli not installed
 
     # 2. Lazy discovery + execution tools
     try:
