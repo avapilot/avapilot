@@ -83,6 +83,7 @@ def _register_service_tools(mcp: FastMCP, service, mode: str):
 
 def _create_dynamic_tool(mcp: FastMCP, td: dict, service):
     """Create and register a single dynamic MCP tool from a tool definition."""
+    import inspect
     from avapilot.runtime.config import get_chain_config
     from avapilot.runtime.evm import read_contract, build_transaction
 
@@ -95,12 +96,12 @@ def _create_dynamic_tool(mcp: FastMCP, td: dict, service):
     params = td["parameters"]
 
     # Build description
-    param_str = ", ".join(f"{p['name']}: {p['type']}" for p in params)
+    param_str = ", ".join(f"{p['name']}: {p['solidity_type']}" for p in params)
     desc = f"{td['description']}({param_str})"
     if is_read:
         desc += " [read]"
     else:
-        desc += " [write]"
+        desc += " [write — returns unsigned tx]"
 
     # We need the full ABI for the contract — find it from the service
     contract_abi = None
@@ -112,40 +113,55 @@ def _create_dynamic_tool(mcp: FastMCP, td: dict, service):
     if not contract_abi:
         return
 
-    # Build the tool function dynamically
+    # Build typed function with proper parameter annotations
+    # MCP needs explicit params, not **kwargs
+    param_names = [p["name"] for p in params]
+
     if is_read:
-        def make_read_tool(_fname, _addr, _abi, _chain):
-            def tool_fn(**kwargs) -> str:
+        def make_read_tool(_fname, _addr, _abi, _chain, _param_names):
+            def tool_fn(kwargs: str = "{}") -> str:
+                """Dynamic read tool. Pass arguments as JSON string: {"param1": "value1", ...}"""
+                import json as _json
+                try:
+                    parsed = _json.loads(kwargs) if isinstance(kwargs, str) else kwargs
+                except:
+                    parsed = {}
+                args = [parsed.get(p, "") for p in _param_names] if _param_names else []
                 cfg = get_chain_config(_chain)
-                args = list(kwargs.values())
                 try:
                     result = read_contract(cfg["rpc_url"], _addr, _abi, _fname, args)
-                    return json.dumps({"success": True, "result": str(result)})
+                    return _json.dumps({"success": True, "result": str(result)})
                 except Exception as e:
-                    return json.dumps({"success": False, "error": str(e)})
+                    return _json.dumps({"success": False, "error": str(e)})
             tool_fn.__name__ = tool_name
-            tool_fn.__doc__ = desc
+            tool_fn.__doc__ = desc + f"\n\nParameters (pass as JSON string): {', '.join(_param_names)}" if _param_names else desc
             return tool_fn
 
-        fn = make_read_tool(func_name, contract_address, contract_abi, chain)
+        fn = make_read_tool(func_name, contract_address, contract_abi, chain, param_names)
     else:
-        def make_write_tool(_fname, _addr, _abi):
-            def tool_fn(**kwargs) -> str:
-                args = list(kwargs.values())
+        def make_write_tool(_fname, _addr, _abi, _param_names):
+            def tool_fn(kwargs: str = "{}") -> str:
+                """Dynamic write tool. Pass arguments as JSON string. Returns unsigned transaction."""
+                import json as _json
+                try:
+                    parsed = _json.loads(kwargs) if isinstance(kwargs, str) else kwargs
+                except:
+                    parsed = {}
+                args = [parsed.get(p, "") for p in _param_names] if _param_names else []
                 try:
                     tx = build_transaction(_addr, _abi, _fname, args)
-                    return json.dumps({
+                    return _json.dumps({
                         "success": True,
                         "transaction": tx,
                         "description": f"Call {_fname} on {_addr}",
                     })
                 except Exception as e:
-                    return json.dumps({"success": False, "error": str(e)})
+                    return _json.dumps({"success": False, "error": str(e)})
             tool_fn.__name__ = tool_name
-            tool_fn.__doc__ = desc
+            tool_fn.__doc__ = desc + f"\n\nParameters (pass as JSON string): {', '.join(_param_names)}" if _param_names else desc
             return tool_fn
 
-        fn = make_write_tool(func_name, contract_address, contract_abi)
+        fn = make_write_tool(func_name, contract_address, contract_abi, param_names)
 
     mcp.tool(name=tool_name, description=desc)(fn)
 
