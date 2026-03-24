@@ -15,7 +15,9 @@ Protocol opens PR → AvaPilot merges → Every AI agent discovers it
 ## Quick start
 
 ```bash
-pip install avapilot
+git clone https://github.com/avapilot/avapilot.git
+cd avapilot
+uv pip install -e .              # Install (or: pip install -e .)
 avapilot seed                    # Load known Avalanche dApps
 avapilot gateway --mode read     # Start MCP gateway
 ```
