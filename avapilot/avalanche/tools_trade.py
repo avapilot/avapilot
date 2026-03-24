@@ -291,3 +291,20 @@ def register(mcp: FastMCP) -> None:
             "token_out": token_out,
             "gas_used": receipt.get("gasUsed"),
         }
+    @mcp.tool(
+        name="simulate_transaction",
+        description="Dry-run a transaction to check if it would succeed before spending gas. Returns gas estimate and cost, or revert reason if it would fail. Always use this before sending real transactions.",
+    )
+    def simulate_tx(to: str, data: str = "0x", value_avax: float = 0) -> str:
+        from avapilot.avalanche.wallet import simulate_transaction
+        from avapilot.avalanche._helpers import to_token_units
+        import json
+
+        tx = {
+            "to": Web3.to_checksum_address(to),
+            "data": bytes.fromhex(data.replace("0x", "")) if data != "0x" else b"",
+            "value": to_token_units(value_avax, 18) if value_avax else 0,
+        }
+        result = simulate_transaction(tx)
+        return json.dumps(result)
+

@@ -28,6 +28,11 @@ from eth_account import Account
 from avapilot.runtime.config import get_chain_config
 
 
+class TransactionSimulationError(Exception):
+    """Raised when a transaction simulation indicates it would revert."""
+    pass
+
+
 def is_wallet_configured() -> bool:
     """Check if a wallet is configured via environment variables."""
     if os.environ.get("AVAPILOT_PRIVATE_KEY"):
@@ -78,15 +83,76 @@ def _get_web3(chain: str = "avalanche") -> Web3:
     return w3
 
 
-def sign_and_send(tx_dict: dict, chain: str = "avalanche") -> str:
+def simulate_transaction(tx_dict: dict, chain: str = "avalanche") -> dict:
+    """Simulate a transaction via eth_call. Returns success/failure + revert reason.
+    
+    Always call this before sign_and_send to prevent wasting gas on reverts.
+    """
+    account = get_account()
+    w3 = _get_web3(chain)
+    
+    call_params = {
+        "from": account.address,
+        "to": tx_dict.get("to"),
+        "value": tx_dict.get("value", 0),
+        "data": tx_dict.get("data", b""),
+    }
+    
+    try:
+        result = w3.eth.call(call_params)
+        gas_estimate = w3.eth.estimate_gas(call_params)
+        gas_price = w3.eth.gas_price
+        gas_cost_avax = (gas_estimate * gas_price) / 1e18
+        return {
+            "success": True,
+            "gas_estimate": gas_estimate,
+            "gas_cost_avax": round(gas_cost_avax, 6),
+            "result": result.hex() if result else "0x",
+        }
+    except Exception as e:
+        error_msg = str(e)
+        # Try to decode revert reason
+        reason = _decode_revert_reason(error_msg)
+        return {
+            "success": False,
+            "error": reason or error_msg,
+            "revert_reason": reason,
+        }
+
+
+def _decode_revert_reason(error_msg: str) -> str | None:
+    """Extract human-readable revert reason from error message."""
+    # Common patterns in revert messages
+    if "execution reverted:" in error_msg:
+        return error_msg.split("execution reverted:")[-1].strip()
+    if "revert" in error_msg.lower():
+        # Try to find the reason string
+        for prefix in ["revert ", "reverted: ", "Reverted "]:
+            if prefix in error_msg:
+                return error_msg.split(prefix)[-1].strip()
+    return None
+
+
+def sign_and_send(tx_dict: dict, chain: str = "avalanche", skip_simulation: bool = False) -> str:
     """Sign a transaction and send it. Returns the transaction hash as hex string.
 
     tx_dict should contain: to, value, data (optional), gas (optional).
     Nonce, chainId, and gas price are filled automatically if missing.
+    
+    By default, simulates the transaction first to catch reverts before spending gas.
+    Set skip_simulation=True to bypass (e.g., for time-sensitive trades).
     """
     account = get_account()
     w3 = _get_web3(chain)
     config = get_chain_config(chain)
+
+    # Simulate first to catch reverts
+    if not skip_simulation:
+        sim = simulate_transaction(tx_dict, chain)
+        if not sim["success"]:
+            raise TransactionSimulationError(
+                f"Transaction would revert: {sim.get('revert_reason') or sim.get('error', 'unknown error')}"
+            )
 
     # Fill in transaction fields
     if "nonce" not in tx_dict:
