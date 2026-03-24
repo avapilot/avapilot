@@ -121,9 +121,21 @@ def read_contract(
     args: list,
 ) -> any:
     """Call a view/pure function on a contract and return the result."""
-    w3 = Web3(Web3.HTTPProvider(rpc_url))
-    if not w3.is_connected():
-        raise ConnectionError(f"Cannot connect to RPC: {rpc_url}")
+    # Try primary RPC, fallback to public nodes
+    rpcs = [rpc_url]
+    if 'avax.network' in rpc_url and '/C/' in rpc_url:
+        rpcs.append('https://avalanche-c-chain-rpc.publicnode.com')
+        rpcs.append('https://avax.meowrpc.com')
+    w3 = None
+    for r in rpcs:
+        try:
+            w3 = Web3(Web3.HTTPProvider(r, request_kwargs={"timeout": 15}))
+            w3.eth.chain_id  # test
+            break
+        except Exception:
+            continue
+    if w3 is None:
+        w3 = Web3(Web3.HTTPProvider(rpcs[0], request_kwargs={"timeout": 30}))
 
     addr = Web3.to_checksum_address(contract_address)
     contract = w3.eth.contract(address=addr, abi=abi)

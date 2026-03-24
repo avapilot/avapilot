@@ -1,7 +1,7 @@
 [project]
 name = "avapilot"
 version = "0.1.0"
-description = "Smart Contract MCP Generator for Avalanche"
+description = "The MCP gateway for the Avalanche ecosystem — register smart contracts, AI agents use them all"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
@@ -15,4 +15,8 @@ dependencies = [
 ]
 
 [project.scripts]
-avapilot = "cli:main"
+avapilot = "avapilot.cli:main"
+
+
+[tool.setuptools.packages.find]
+include = ["avapilot*"]
