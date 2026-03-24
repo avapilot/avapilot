@@ -22,18 +22,14 @@
         .stats { display: flex; gap: 48px; padding: 40px 0; border-top: 1px solid #222; border-bottom: 1px solid #222; flex-wrap: wrap; }
         .stat .n { font-size: 36px; font-weight: 700; letter-spacing: -1px; }
         .stat .l { font-size: 13px; opacity: 0.4; text-transform: uppercase; letter-spacing: 1px; }
-        .paths { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 48px 0; }
-        @media (max-width: 540px) { .paths { grid-template-columns: 1fr; } }
-        .path { border: 1px solid #333; padding: 32px 28px; cursor: pointer; transition: all 0.2s; text-decoration: none; display: block; }
-        .path:hover { border-color: #fff; opacity: 1; }
-        .path-emoji { font-size: 28px; margin-bottom: 12px; }
-        .path h3 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
-        .path p { font-size: 14px; opacity: 0.5; }
-        .path .path-cta { font-size: 13px; opacity: 0.3; margin-top: 12px; }
-        section { padding: 64px 0; border-top: 1px solid #222; }
+        .tab-bar { display: flex; gap: 0; border-bottom: 1px solid #222; margin-top: 48px; }
+        .tab { padding: 16px 28px; font-size: 15px; font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent; opacity: 0.4; transition: all 0.2s; }
+        .tab:hover { opacity: 0.7; }
+        .tab.active { opacity: 1; border-bottom-color: #fff; }
+        .tab .tab-emoji { margin-right: 6px; }
+        section { padding: 64px 0; display: none; }
+        section.show { display: block; }
         h2 { font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 2px; opacity: 0.4; margin-bottom: 32px; }
-        .section-intro { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 8px; }
-        .section-intro .emoji { margin-right: 8px; }
         .desc { opacity: 0.5; margin-bottom: 32px; font-size: 15px; }
         .step { margin-bottom: 40px; }
         .step:last-child { margin-bottom: 0; }
@@ -83,26 +79,15 @@
     <div class="stat"><div class="n">28</div><div class="l">Contracts</div></div>
 </div>
 
-<!-- Jump cards -->
-<div class="paths">
-    <a class="path" href="#user">
-        <div class="path-emoji">🤖</div>
-        <h3>I use AI agents</h3>
-        <p>Connect your AI to Avalanche. Swap, lend, stake, create L1s — all through chat.</p>
-        <div class="path-cta">Get started ↓</div>
-    </a>
-    <a class="path" href="#dev">
-        <div class="path-emoji">🔧</div>
-        <h3>I build protocols</h3>
-        <p>Get your smart contracts in front of every AI agent on Avalanche. One PR.</p>
-        <div class="path-cta">List your protocol ↓</div>
-    </a>
+<div class="tab-bar">
+    <div class="tab active" data-tab="user" onclick="showTab('user')"><span class="tab-emoji">🤖</span> For AI Users</div>
+    <div class="tab" data-tab="dev" onclick="showTab('dev')"><span class="tab-emoji">🔧</span> For Developers</div>
 </div>
 
-<!-- ═══ FOR AI USERS ═══ -->
-<section id="user">
-<div class="section-intro"><span class="emoji">🤖</span> For AI agent users</div>
-<p class="desc">Connect your AI to Avalanche. Swap, lend, stake, create L1s — all through chat.</p>
+<!-- ═══ USER TAB ═══ -->
+<section id="sec-user" class="show">
+
+<h2>Get started in 3 minutes</h2>
 
 <div class="step"><div class="step-n">01</div><h3>Install</h3>
 <p>You need Python 3.10+ and <a href="https://docs.astral.sh/uv/" target="_blank">uv</a>.</p>
@@ -157,12 +142,32 @@ avapilot gateway --mode trade --chain fuji
 <span class="c"># Full — trade + deploy smart contracts</span>
 avapilot gateway --mode full --chain fuji</pre>
 <p style="font-size:13px;opacity:0.3;margin-top:8px">Your key never leaves your machine. All signing is local. We're open source — verify it.</p>
+
+<h2 style="margin-top:48px">Available protocols</h2>
+<div class="services">
+    <div class="svc"><span class="svc-name">Trader Joe</span><span class="svc-cat">DeFi</span><div class="svc-desc">DEX — swap, liquidity, LP</div><div class="svc-meta">3 contracts · 60 functions</div></div>
+    <div class="svc"><span class="svc-name">Benqi Lending</span><span class="svc-cat">DeFi</span><div class="svc-desc">Lend, borrow, earn</div><div class="svc-meta">3 contracts · 105 functions</div></div>
+    <div class="svc"><span class="svc-name">Aave V3</span><span class="svc-cat">DeFi</span><div class="svc-desc">Lending + borrowing</div><div class="svc-meta">3 contracts · 31 functions</div></div>
+    <div class="svc"><span class="svc-name">GMX</span><span class="svc-cat">DeFi</span><div class="svc-desc">Perpetual exchange</div><div class="svc-meta">3 contracts · 62 functions</div></div>
+    <div class="svc"><span class="svc-name">Stargate</span><span class="svc-cat">DeFi</span><div class="svc-desc">Cross-chain bridge</div><div class="svc-meta">2 contracts · 98 functions</div></div>
+    <div class="svc"><span class="svc-name">Pangolin</span><span class="svc-cat">DeFi</span><div class="svc-desc">Community DEX</div><div class="svc-meta">2 contracts · 32 functions</div></div>
+    <div class="svc"><span class="svc-name">sAVAX</span><span class="svc-cat">DeFi</span><div class="svc-desc">Benqi liquid staking</div><div class="svc-meta">70 functions</div></div>
+    <div class="svc"><span class="svc-name">ggAVAX</span><span class="svc-cat">DeFi</span><div class="svc-desc">GoGoPool liquid staking</div><div class="svc-meta">65 functions</div></div>
+    <div class="svc"><span class="svc-name">Pharaoh</span><span class="svc-cat">DeFi</span><div class="svc-desc">ve(3,3) DEX</div><div class="svc-meta">35 functions</div></div>
+    <div class="svc"><span class="svc-name">Yield Yak</span><span class="svc-cat">DeFi</span><div class="svc-desc">Yield optimizer</div><div class="svc-meta">1 contract</div></div>
+    <div class="svc"><span class="svc-name">USDC</span><span class="svc-cat">Token</span><div class="svc-desc">Native Circle USDC</div><div class="svc-meta">55 functions · proxy</div></div>
+    <div class="svc"><span class="svc-name">WAVAX · BTC.b · WETH.e</span><span class="svc-cat">Token</span><div class="svc-desc">Core wrapped assets</div><div class="svc-meta"></div></div>
+    <div class="svc"><span class="svc-name">JOE · QI · PNG</span><span class="svc-cat">Token</span><div class="svc-desc">Governance tokens</div><div class="svc-meta"></div></div>
+    <div class="svc"><span class="svc-name">USDT.e</span><span class="svc-cat">Token</span><div class="svc-desc">Bridged Tether</div><div class="svc-meta">22 functions</div></div>
+</div>
+
 </section>
 
-<!-- ═══ FOR DEVELOPERS ═══ -->
-<section id="dev">
-<div class="section-intro"><span class="emoji">🔧</span> For protocol developers</div>
-<p class="desc">Get your smart contracts in front of every AI agent on Avalanche. One PR. No SDK. No maintenance.</p>
+<!-- ═══ DEV TAB ═══ -->
+<section id="sec-dev">
+
+<h2>Get your protocol in front of every AI agent</h2>
+<p class="desc">One PR. Every AI agent connected to AvaPilot discovers your contracts. No SDK. No integration work. No maintenance.</p>
 
 <div class="step"><div class="step-n">01</div><h3>Check what AI sees from your contract</h3>
 <pre>avapilot scan 0xYourContractAddress</pre>
@@ -210,11 +215,8 @@ avapilot gateway --mode full --chain fuji</pre>
     <div class="feature"><h3>Every MCP client</h3><p>Claude, Cursor, OpenClaw, Windsurf — everywhere.</p></div>
     <div class="feature"><h3>Zero maintenance</h3><p>Once merged, works forever. No SDK updates.</p></div>
 </div>
-</section>
 
-<!-- ═══ REGISTERED SERVICES ═══ -->
-<section>
-<h2>Registered services</h2>
+<h2 style="margin-top:48px">Currently registered — 18 services</h2>
 <div class="services">
     <div class="svc"><span class="svc-name">Trader Joe</span><span class="svc-cat">DeFi</span><div class="svc-desc">DEX — swap, liquidity, LP</div><div class="svc-meta">3 contracts · 60 functions</div></div>
     <div class="svc"><span class="svc-name">Benqi Lending</span><span class="svc-cat">DeFi</span><div class="svc-desc">Lend, borrow, earn</div><div class="svc-meta">3 contracts · 105 functions</div></div>
@@ -222,20 +224,29 @@ avapilot gateway --mode full --chain fuji</pre>
     <div class="svc"><span class="svc-name">GMX</span><span class="svc-cat">DeFi</span><div class="svc-desc">Perpetual exchange</div><div class="svc-meta">3 contracts · 62 functions</div></div>
     <div class="svc"><span class="svc-name">Stargate</span><span class="svc-cat">DeFi</span><div class="svc-desc">Cross-chain bridge</div><div class="svc-meta">2 contracts · 98 functions</div></div>
     <div class="svc"><span class="svc-name">Pangolin</span><span class="svc-cat">DeFi</span><div class="svc-desc">Community DEX</div><div class="svc-meta">2 contracts · 32 functions</div></div>
-    <div class="svc"><span class="svc-name">sAVAX</span><span class="svc-cat">DeFi</span><div class="svc-desc">Benqi liquid staking</div><div class="svc-meta">70 functions</div></div>
-    <div class="svc"><span class="svc-name">ggAVAX</span><span class="svc-cat">DeFi</span><div class="svc-desc">GoGoPool liquid staking</div><div class="svc-meta">65 functions</div></div>
-    <div class="svc"><span class="svc-name">Pharaoh</span><span class="svc-cat">DeFi</span><div class="svc-desc">ve(3,3) DEX</div><div class="svc-meta">35 functions</div></div>
-    <div class="svc"><span class="svc-name">Yield Yak</span><span class="svc-cat">DeFi</span><div class="svc-desc">Yield optimizer</div><div class="svc-meta">1 contract</div></div>
-    <div class="svc"><span class="svc-name">USDC</span><span class="svc-cat">Token</span><div class="svc-desc">Native Circle USDC</div><div class="svc-meta">55 functions · proxy</div></div>
+    <div class="svc"><span class="svc-name">sAVAX · ggAVAX</span><span class="svc-cat">DeFi</span><div class="svc-desc">Liquid staking</div><div class="svc-meta">135 functions</div></div>
+    <div class="svc"><span class="svc-name">Pharaoh · Yield Yak</span><span class="svc-cat">DeFi</span><div class="svc-desc">ve(3,3) DEX + yield optimizer</div><div class="svc-meta">36 functions</div></div>
+    <div class="svc"><span class="svc-name">USDC · USDT.e</span><span class="svc-cat">Token</span><div class="svc-desc">Stablecoins</div><div class="svc-meta">77 functions</div></div>
     <div class="svc"><span class="svc-name">WAVAX · BTC.b · WETH.e</span><span class="svc-cat">Token</span><div class="svc-desc">Core wrapped assets</div><div class="svc-meta"></div></div>
     <div class="svc"><span class="svc-name">JOE · QI · PNG</span><span class="svc-cat">Token</span><div class="svc-desc">Governance tokens</div><div class="svc-meta"></div></div>
-    <div class="svc"><span class="svc-name">USDT.e</span><span class="svc-cat">Token</span><div class="svc-desc">Bridged Tether</div><div class="svc-meta">22 functions</div></div>
 </div>
+
 </section>
 
 </div>
 
 <footer>AvaPilot — Open source MCP gateway for Avalanche</footer>
+
+<script>
+function showTab(which) {
+    document.querySelectorAll('section').forEach(s => s.classList.remove('show'));
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.getElementById('sec-' + which).classList.add('show');
+    document.querySelector('.tab[data-tab="' + which + '"]').classList.add('active');
+}
+// Default: user tab shown
+if (location.hash === '#dev') showTab('dev');
+</script>
 
 </body>
 </html>
