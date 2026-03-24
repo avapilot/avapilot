@@ -1,67 +1,99 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AvaPilot — The MCP Gateway for Avalanche</title>
     <style>
+        :root { --bg: #000; --fg: #fff; --fg2: #aaa; --fg3: #666; --fg4: #444; --border: #222; --surface: #111; --surface2: #0a0a0a; --accent: #fff; --accent-fg: #000; --tip-bg: #1a1a0a; --tip-border: #333a10; --tip-fg: #cca; }
+        [data-theme="light"] { --bg: #fff; --fg: #111; --fg2: #555; --fg3: #888; --fg4: #bbb; --border: #e0e0e0; --surface: #f5f5f5; --surface2: #fafafa; --accent: #111; --accent-fg: #fff; --tip-bg: #fffde6; --tip-border: #e8e0a0; --tip-fg: #665500; }
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: #000; color: #fff; line-height: 1.6; -webkit-font-smoothing: antialiased; }
-        a { color: #fff; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: var(--bg); color: var(--fg); line-height: 1.6; -webkit-font-smoothing: antialiased; transition: background 0.3s, color 0.3s; }
+        a { color: var(--fg); }
         a:hover { opacity: 0.7; }
         .container { max-width: 720px; margin: 0 auto; padding: 0 24px; }
-        nav { padding: 24px 0; border-bottom: 1px solid #222; }
+
+        /* Nav */
+        nav { padding: 24px 0; border-bottom: 1px solid var(--border); }
         nav .container { display: flex; justify-content: space-between; align-items: center; }
-        .logo { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; text-decoration: none; }
-        .logo span { opacity: 0.4; font-weight: 400; }
-        nav a.gh { font-size: 14px; opacity: 0.5; text-decoration: none; }
+        .logo { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; text-decoration: none; color: var(--fg); }
+        .logo span { color: var(--fg3); font-weight: 400; }
+        .nav-right { display: flex; align-items: center; gap: 16px; }
+        nav a.gh { font-size: 14px; color: var(--fg3); text-decoration: none; }
+        .theme-toggle { background: none; border: 1px solid var(--border); color: var(--fg3); padding: 6px 10px; cursor: pointer; font-size: 14px; transition: all 0.2s; }
+        .theme-toggle:hover { border-color: var(--fg3); color: var(--fg); }
+
+        /* Hero */
         .hero { padding: 80px 0 48px; }
         .hero h1 { font-size: 48px; font-weight: 700; letter-spacing: -1.5px; line-height: 1.1; margin-bottom: 16px; }
-        .hero p { font-size: 18px; opacity: 0.5; max-width: 540px; margin-bottom: 8px; }
-        .hero .tag { font-size: 13px; opacity: 0.2; margin-top: 16px; }
-        .stats { display: flex; gap: 48px; padding: 40px 0; border-top: 1px solid #222; border-bottom: 1px solid #222; flex-wrap: wrap; }
+        .hero p { font-size: 18px; color: var(--fg2); max-width: 540px; margin-bottom: 8px; }
+        .hero .tag { font-size: 13px; color: var(--fg4); margin-top: 16px; }
+
+        /* Stats */
+        .stats { display: flex; gap: 48px; padding: 40px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
         .stat .n { font-size: 36px; font-weight: 700; letter-spacing: -1px; }
-        .stat .l { font-size: 13px; opacity: 0.4; text-transform: uppercase; letter-spacing: 1px; }
-        .tab-bar { display: flex; gap: 0; border-bottom: 1px solid #222; margin-top: 48px; }
-        .tab { padding: 16px 28px; font-size: 15px; font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent; opacity: 0.4; transition: all 0.2s; }
-        .tab:hover { opacity: 0.7; }
-        .tab.active { opacity: 1; border-bottom-color: #fff; }
+        .stat .l { font-size: 13px; color: var(--fg3); text-transform: uppercase; letter-spacing: 1px; }
+
+        /* Tabs */
+        .tab-bar { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-top: 48px; }
+        .tab { padding: 16px 28px; font-size: 15px; font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent; color: var(--fg3); transition: all 0.2s; }
+        .tab:hover { color: var(--fg2); }
+        .tab.active { color: var(--fg); border-bottom-color: var(--fg); }
         .tab .tab-emoji { margin-right: 6px; }
+
+        /* Sections */
         section { padding: 64px 0; display: none; }
         section.show { display: block; }
-        h2 { font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 2px; opacity: 0.4; margin-bottom: 32px; }
-        .desc { opacity: 0.5; margin-bottom: 32px; font-size: 15px; }
+        h2 { font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 2px; color: var(--fg3); margin-bottom: 32px; }
+        .desc { color: var(--fg2); margin-bottom: 32px; font-size: 15px; }
+
+        /* Steps */
         .step { margin-bottom: 40px; }
         .step:last-child { margin-bottom: 0; }
-        .step-n { font-size: 13px; font-family: monospace; opacity: 0.3; margin-bottom: 8px; }
+        .step-n { font-size: 13px; font-family: monospace; color: var(--fg4); margin-bottom: 8px; }
         .step h3 { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
-        .step p { opacity: 0.5; font-size: 14px; margin-bottom: 12px; }
-        pre { background: #111; border: 1px solid #222; padding: 20px; overflow-x: auto; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px; line-height: 1.7; margin-bottom: 12px; }
-        .c { opacity: 0.3; }
+        .step p { color: var(--fg2); font-size: 14px; margin-bottom: 12px; }
+        pre { background: var(--surface); border: 1px solid var(--border); padding: 20px; overflow-x: auto; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px; line-height: 1.7; margin-bottom: 12px; }
+        .c { color: var(--fg4); }
+
+        /* Tip box */
+        .tip { background: var(--tip-bg); border: 1px solid var(--tip-border); padding: 16px 20px; font-size: 14px; color: var(--tip-fg); margin-top: 12px; line-height: 1.6; }
+        .tip a { color: var(--tip-fg); text-decoration: underline; }
+        .tip code { background: rgba(128,128,0,0.15); padding: 2px 6px; font-size: 13px; }
+
+        /* Services */
         .services { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
         @media (max-width: 540px) { .services { grid-template-columns: 1fr; } }
-        .svc { border: 1px solid #222; padding: 16px; transition: border-color 0.2s; }
-        .svc:hover { border-color: #444; }
+        .svc { border: 1px solid var(--border); padding: 16px; transition: border-color 0.2s; }
+        .svc:hover { border-color: var(--fg3); }
         .svc-name { font-weight: 600; }
-        .svc-cat { font-size: 11px; opacity: 0.3; text-transform: uppercase; letter-spacing: 1px; margin-left: 8px; }
-        .svc-desc { font-size: 13px; opacity: 0.4; margin-top: 4px; }
-        .svc-meta { font-size: 12px; opacity: 0.25; margin-top: 6px; font-family: 'SF Mono', monospace; }
+        .svc-cat { font-size: 11px; color: var(--fg4); text-transform: uppercase; letter-spacing: 1px; margin-left: 8px; }
+        .svc-desc { font-size: 13px; color: var(--fg3); margin-top: 4px; }
+        .svc-meta { font-size: 12px; color: var(--fg4); margin-top: 6px; font-family: 'SF Mono', monospace; }
+
+        /* Features */
         .features { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-bottom: 32px; }
         @media (max-width: 540px) { .features { grid-template-columns: 1fr; } }
         .feature h3 { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
-        .feature p { font-size: 14px; opacity: 0.5; }
-        .cta { display: inline-block; border: 1px solid #fff; padding: 12px 32px; font-size: 15px; font-weight: 600; text-decoration: none; margin-top: 16px; transition: all 0.2s; }
-        .cta:hover { background: #fff; color: #000; opacity: 1; }
-        .cta-primary { background: #fff; color: #000; }
+        .feature p { font-size: 14px; color: var(--fg2); }
+
+        /* CTAs */
+        .cta { display: inline-block; border: 1px solid var(--fg); padding: 12px 32px; font-size: 15px; font-weight: 600; text-decoration: none; margin-top: 16px; transition: all 0.2s; color: var(--fg); }
+        .cta:hover { background: var(--fg); color: var(--bg); opacity: 1; }
+        .cta-primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
         .cta-primary:hover { opacity: 0.85; }
-        footer { padding: 48px 0; text-align: center; opacity: 0.15; font-size: 13px; }
+
+        footer { padding: 48px 0; text-align: center; color: var(--fg4); font-size: 13px; }
     </style>
 </head>
 <body>
 
 <nav><div class="container">
     <a href="/" class="logo">AvaPilot <span>gateway</span></a>
-    <a href="https://github.com/avapilot/avapilot" class="gh">GitHub ↗</a>
+    <div class="nav-right">
+        <button class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode">☀️</button>
+        <a href="https://github.com/avapilot/avapilot" class="gh">GitHub ↗</a>
+    </div>
 </div></nav>
 
 <div class="container">
@@ -111,7 +143,7 @@ avapilot seed</pre>
 <pre><span class="c"># OpenClaw / Cursor / Windsurf — same pattern</span>
 command: avapilot
 args: gateway --mode trade --chain avalanche</pre>
-<p style="font-size:13px;opacity:0.3">💡 New to AvaPilot? Start with <code>--chain fuji</code> first — it's a free testnet so you can learn the system without risking real funds. Get test AVAX at <a href="https://faucet.avax.network" target="_blank">faucet.avax.network</a>.</p>
+<div class="tip">💡 <strong>New to AvaPilot?</strong> Start with <code>--chain fuji</code> first — it's a free testnet so you can learn the system without risking real funds. Get test AVAX at <a href="https://faucet.avax.network" target="_blank">faucet.avax.network</a>.</div>
 </div>
 
 <div class="step"><div class="step-n">03</div><h3>Talk to Avalanche</h3>
@@ -141,7 +173,7 @@ avapilot gateway --mode trade --chain avalanche
 
 <span class="c"># Full — trade + deploy smart contracts</span>
 avapilot gateway --mode full --chain avalanche</pre>
-<p style="font-size:13px;opacity:0.3;margin-top:8px">Your key never leaves your machine. All signing is local. We're open source — verify it.</p>
+<p style="font-size:14px;color:var(--fg2);margin-top:12px">Your key never leaves your machine. All signing is local. We're open source — verify it.</p>
 
 <h2 style="margin-top:48px">Available protocols</h2>
 <div class="services">
@@ -189,7 +221,7 @@ avapilot gateway --mode full --chain avalanche</pre>
     "category": "DeFi",
     "website": "https://yourprotocol.com",
 }</pre>
-<p style="font-size:13px;opacity:0.3">Multi-contract supported. Router, factory, vaults — all under one service. ABI auto-fetched, proxies detected.</p>
+<p style="font-size:14px;color:var(--fg2);margin-top:8px">Multi-contract supported. Router, factory, vaults — all under one service. ABI auto-fetched, proxies detected.</p>
 </div>
 
 <div class="step"><div class="step-n">03</div><h3>Open a PR</h3>
@@ -244,6 +276,23 @@ function showTab(which) {
     document.getElementById('sec-' + which).classList.add('show');
     document.querySelector('.tab[data-tab="' + which + '"]').classList.add('active');
 }
+
+function toggleTheme() {
+    const html = document.documentElement;
+    const current = html.getAttribute('data-theme');
+    const next = current === 'dark' ? 'light' : 'dark';
+    html.setAttribute('data-theme', next);
+    document.querySelector('.theme-toggle').textContent = next === 'dark' ? '☀️' : '🌙';
+    localStorage.setItem('theme', next);
+}
+
+// Restore saved theme
+const saved = localStorage.getItem('theme');
+if (saved) {
+    document.documentElement.setAttribute('data-theme', saved);
+    if (saved === 'light') document.querySelector('.theme-toggle').textContent = '🌙';
+}
+
 // Default: user tab shown
 if (location.hash === '#dev') showTab('dev');
 </script>
