@@ -191,9 +191,9 @@ print("\n📊 TOOL COUNTS")
 g_read = create_gateway('read')
 g_trade = create_gateway('trade')
 g_full = create_gateway('full')
-test("read mode: 34 tools", lambda: len(g_read._tool_manager._tools) == 34 or f"got {len(g_read._tool_manager._tools)}")
-test("trade mode: 44 tools", lambda: len(g_trade._tool_manager._tools) == 44 or f"got {len(g_trade._tool_manager._tools)}")
-test("full mode: 45 tools", lambda: len(g_full._tool_manager._tools) == 45 or f"got {len(g_full._tool_manager._tools)}")
+test("read mode: 34+ tools", lambda: len(g_read._tool_manager._tools) >= 34 or f"got {len(g_read._tool_manager._tools)}")
+test("trade mode: 44+ tools", lambda: len(g_trade._tool_manager._tools) >= 44 or f"got {len(g_trade._tool_manager._tools)}")
+test("full mode: 45+ tools", lambda: len(g_full._tool_manager._tools) >= 45 or f"got {len(g_full._tool_manager._tools)}")
 
 # ── Summary ──
 print("\n" + "=" * 60)

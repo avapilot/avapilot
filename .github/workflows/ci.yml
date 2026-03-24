@@ -19,14 +19,14 @@ jobs:
       - name: Install uv
         run: pip install uv
 
-      - name: Install dependencies
-        run: uv sync
+      - name: Install package
+        run: uv pip install -e . --system
 
       - name: Seed registry
-        run: uv run avapilot seed
+        run: avapilot seed
 
       - name: Run read-only tests
-        run: uv run python tests/test_read_only.py
+        run: python tests/test_read_only.py
 
       - name: Run lazy discovery tests
-        run: uv run python tests/test_lazy_discovery.py
+        run: python tests/test_lazy_discovery.py

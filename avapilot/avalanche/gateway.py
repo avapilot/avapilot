@@ -101,8 +101,10 @@ def _register_lazy_tools(mcp: FastMCP, registry, mode: str, chain: str = "avalan
                 "name": s.name,
                 "category": s.category,
                 "description": s.description,
+                "contracts": len(s.contracts),
                 "read_functions": s.total_read_tools,
                 "write_functions": s.total_write_tools,
+                "total_functions": s.total_read_tools + s.total_write_tools,
             })
         if not result and not query and not category:
             return json.dumps({"message": "No services registered. Run: avapilot seed"})
@@ -160,10 +162,13 @@ def _register_lazy_tools(mcp: FastMCP, registry, mode: str, chain: str = "avalan
                 functions.append({
                     "name": item["name"],
                     "contract": c.label,
+                    "contract_address": c.address,
                     "is_read": is_read,
                     "inputs": inputs,
                     "outputs": outputs,
                 })
+        # Sort: reads first, then by contract
+        functions.sort(key=lambda f: (not f["is_read"], f["contract"], f["name"]))
         return json.dumps(functions)
 
     @mcp.tool(
