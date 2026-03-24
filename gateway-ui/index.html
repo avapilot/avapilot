@@ -104,14 +104,14 @@ avapilot seed</pre>
   "mcpServers": {
     "avapilot": {
       "command": "avapilot",
-      "args": ["gateway", "--mode", "trade", "--chain", "fuji"]
+      "args": ["gateway", "--mode", "trade", "--chain", "avalanche"]
     }
   }
 }</pre>
 <pre><span class="c"># OpenClaw / Cursor / Windsurf — same pattern</span>
 command: avapilot
-args: gateway --mode trade --chain fuji</pre>
-<p style="font-size:13px;opacity:0.3">Start with <code>--chain fuji</code> (free testnet). Switch to <code>--chain avalanche</code> for real money.</p>
+args: gateway --mode trade --chain avalanche</pre>
+<p style="font-size:13px;opacity:0.3">💡 New to AvaPilot? Start with <code>--chain fuji</code> first — it's a free testnet so you can learn the system without risking real funds. Get test AVAX at <a href="https://faucet.avax.network" target="_blank">faucet.avax.network</a>.</p>
 </div>
 
 <div class="step"><div class="step-n">03</div><h3>Talk to Avalanche</h3>
@@ -137,10 +137,10 @@ args: gateway --mode trade --chain fuji</pre>
 avapilot gateway --mode read --chain avalanche
 
 <span class="c"># Trading — send, swap, wrap, stake, create L1s</span>
-avapilot gateway --mode trade --chain fuji
+avapilot gateway --mode trade --chain avalanche
 
 <span class="c"># Full — trade + deploy smart contracts</span>
-avapilot gateway --mode full --chain fuji</pre>
+avapilot gateway --mode full --chain avalanche</pre>
 <p style="font-size:13px;opacity:0.3;margin-top:8px">Your key never leaves your machine. All signing is local. We're open source — verify it.</p>
 
 <h2 style="margin-top:48px">Available protocols</h2>
