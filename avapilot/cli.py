@@ -92,9 +92,10 @@ def cmd_tools(args):
         "trade": "TRADE mode — read + send/swap/approve (wallet required)",
         "full": "FULL mode — everything including deploy/write contracts",
     }
-    print(f"🔺 Starting Avalanche MCP Gateway")
-    print(f"   {labels[mode]}")
-    print()
+    import sys
+    print(f"🔺 Starting Avalanche MCP Gateway", file=sys.stderr)
+    print(f"   {labels[mode]}", file=sys.stderr)
+    print(file=sys.stderr)
     gateway = create_gateway(mode)
     gateway.run()
 

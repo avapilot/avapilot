@@ -1,3 +1,4 @@
+import sys
 """TRADE mode tools — wallet required, send/swap/approve tokens."""
 
 import time
@@ -61,9 +62,9 @@ def register(mcp: FastMCP) -> None:
         gas_price_val = w3.eth.gas_price
         estimated_gas = 21_000
         total_cost = value_wei + (gas_price_val * estimated_gas)
-        print(f"[send_avax] Sending {amount_avax} AVAX to {to}")
-        print(f"  Gas: {estimated_gas} units @ {from_token_units(gas_price_val, 9):.2f} gwei")
-        print(f"  Total cost: ~{from_token_units(total_cost, 18):.6f} AVAX")
+        print(f"[send_avax] Sending {amount_avax} AVAX to {to}", file=sys.stderr)
+        print(f"  Gas: {estimated_gas} units @ {from_token_units(gas_price_val, 9):.2f} gwei", file=sys.stderr)
+        print(f"  Total cost: ~{from_token_units(total_cost, 18):.6f} AVAX", file=sys.stderr)
         tx = {"to": to, "value": value_wei, "gas": estimated_gas}
         tx_hash = wallet.sign_and_send(tx, chain=chain)
         receipt = wallet.wait_for_receipt(tx_hash, chain=chain)
@@ -92,7 +93,7 @@ def register(mcp: FastMCP) -> None:
             return {
                 "error": f"Insufficient {symbol} balance. Have {from_token_units(balance, decimals)}, need {amount}",
             }
-        print(f"[send_token] Sending {amount} {symbol} to {to}")
+        print(f"[send_token] Sending {amount} {symbol} to {to}", file=sys.stderr)
         tx_data = contract.functions.transfer(to, raw_amount).build_transaction({
             "from": sender,
             "nonce": w3.eth.get_transaction_count(sender),
@@ -124,7 +125,7 @@ def register(mcp: FastMCP) -> None:
         if balance < value_wei:
             return {"error": f"Insufficient AVAX. Have {from_token_units(balance, 18):.6f}, need {amount_avax}"}
         contract = w3.eth.contract(address=wavax_addr, abi=WAVAX_ABI)
-        print(f"[wrap_avax] Wrapping {amount_avax} AVAX to WAVAX")
+        print(f"[wrap_avax] Wrapping {amount_avax} AVAX to WAVAX", file=sys.stderr)
         tx_data = contract.functions.deposit().build_transaction({
             "from": sender,
             "value": value_wei,
@@ -153,7 +154,7 @@ def register(mcp: FastMCP) -> None:
         balance = contract.functions.balanceOf(sender).call()
         if balance < raw_amount:
             return {"error": f"Insufficient WAVAX. Have {from_token_units(balance, 18):.6f}, need {amount_wavax}"}
-        print(f"[unwrap_avax] Unwrapping {amount_wavax} WAVAX to AVAX")
+        print(f"[unwrap_avax] Unwrapping {amount_wavax} WAVAX to AVAX", file=sys.stderr)
         tx_data = contract.functions.withdraw(raw_amount).build_transaction({
             "from": sender,
             "nonce": w3.eth.get_transaction_count(sender),
@@ -182,7 +183,7 @@ def register(mcp: FastMCP) -> None:
         symbol = contract.functions.symbol().call()
         raw_amount = to_token_units(amount, decimals)
         sender = wallet.get_address()
-        print(f"[approve_token] Approving {spender} to spend {amount} {symbol}")
+        print(f"[approve_token] Approving {spender} to spend {amount} {symbol}", file=sys.stderr)
         tx_data = contract.functions.approve(spender, raw_amount).build_transaction({
             "from": sender,
             "nonce": w3.eth.get_transaction_count(sender),
@@ -241,9 +242,9 @@ def register(mcp: FastMCP) -> None:
         expected_out = amounts[-1]
         min_out = int(expected_out * (1 - slippage_percent / 100))
 
-        print(f"[swap] {amount_in} {token_in} -> ~{from_token_units(expected_out, out_decimals)} {token_out}")
-        print(f"  Min output (after {slippage_percent}% slippage): {from_token_units(min_out, out_decimals)}")
-        print(f"  Path: {' -> '.join(path)}")
+        print(f"[swap] {amount_in} {token_in} -> ~{from_token_units(expected_out, out_decimals)} {token_out}", file=sys.stderr)
+        print(f"  Min output (after {slippage_percent}% slippage): {from_token_units(min_out, out_decimals)}", file=sys.stderr)
+        print(f"  Path: {' -> '.join(path)}", file=sys.stderr)
 
         chain_id = get_chain_config(chain)["chain_id"]
         nonce = w3.eth.get_transaction_count(sender)
