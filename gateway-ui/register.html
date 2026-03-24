@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register Your Protocol — AvaPilot</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: #000; color: #fff; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+        a { color: #fff; }
+        .container { max-width: 600px; margin: 0 auto; padding: 0 24px; }
+        nav { padding: 24px 0; border-bottom: 1px solid #222; }
+        nav .container { display: flex; justify-content: space-between; align-items: center; }
+        .logo { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; text-decoration: none; }
+        .logo span { opacity: 0.4; font-weight: 400; }
+        nav a.back { font-size: 14px; opacity: 0.5; text-decoration: none; }
+        .hero { padding: 48px 0 32px; }
+        .hero h1 { font-size: 32px; font-weight: 700; letter-spacing: -1px; margin-bottom: 12px; }
+        .hero p { font-size: 16px; opacity: 0.5; }
+        .steps { padding: 32px 0; }
+        .step { margin-bottom: 32px; }
+        .step-label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 2px; opacity: 0.3; margin-bottom: 12px; }
+        label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+        label span { font-weight: 400; opacity: 0.4; }
+        input, select, textarea { width: 100%; background: #111; border: 1px solid #333; color: #fff; padding: 12px 16px; font-size: 15px; font-family: inherit; outline: none; transition: border-color 0.2s; }
+        input:focus, select:focus, textarea:focus { border-color: #666; }
+        input::placeholder, textarea::placeholder { color: #444; }
+        select { appearance: none; cursor: pointer; }
+        textarea { resize: vertical; min-height: 80px; }
+        .hint { font-size: 12px; opacity: 0.3; margin-top: 4px; }
+        .contracts-list { margin-top: 12px; }
+        .contract-row { display: grid; grid-template-columns: 1fr 120px 32px; gap: 8px; margin-bottom: 8px; align-items: start; }
+        .contract-row input { font-size: 13px; padding: 10px 12px; }
+        .btn-remove { background: none; border: 1px solid #333; color: #666; font-size: 18px; cursor: pointer; padding: 9px; text-align: center; line-height: 1; }
+        .btn-remove:hover { border-color: #f44; color: #f44; }
+        .btn-add { background: none; border: 1px dashed #333; color: #666; padding: 10px; text-align: center; cursor: pointer; font-size: 13px; width: 100%; margin-top: 4px; }
+        .btn-add:hover { border-color: #666; color: #fff; }
+        .output { display: none; padding: 32px 0; border-top: 1px solid #222; }
+        .output.show { display: block; }
+        .output h2 { font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 2px; opacity: 0.4; margin-bottom: 16px; }
+        pre { background: #111; border: 1px solid #222; padding: 20px; overflow-x: auto; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px; line-height: 1.7; white-space: pre-wrap; position: relative; }
+        .copy-btn { position: absolute; top: 8px; right: 8px; background: #222; border: 1px solid #444; color: #aaa; padding: 6px 14px; font-size: 12px; cursor: pointer; font-family: inherit; }
+        .copy-btn:hover { background: #333; color: #fff; }
+        .copy-btn.copied { color: #4f4; }
+        .actions { display: flex; gap: 12px; margin-top: 24px; flex-wrap: wrap; }
+        .btn { display: inline-block; padding: 14px 28px; font-size: 15px; font-weight: 600; text-decoration: none; text-align: center; cursor: pointer; border: none; font-family: inherit; transition: all 0.2s; }
+        .btn-primary { background: #fff; color: #000; }
+        .btn-primary:hover { opacity: 0.8; }
+        .btn-secondary { background: none; border: 1px solid #444; color: #fff; }
+        .btn-secondary:hover { border-color: #fff; }
+        .btn-generate { background: #fff; color: #000; width: 100%; padding: 16px; font-size: 16px; font-weight: 700; cursor: pointer; border: none; font-family: inherit; margin-top: 8px; }
+        .btn-generate:hover { opacity: 0.85; }
+        .btn-generate:disabled { opacity: 0.3; cursor: not-allowed; }
+        footer { padding: 48px 0; text-align: center; opacity: 0.15; font-size: 13px; }
+        .preview { background: #0a0a0a; border: 1px solid #1a1a1a; padding: 16px; margin-top: 16px; font-size: 13px; }
+        .preview-name { font-weight: 600; }
+        .preview-cat { font-size: 11px; opacity: 0.3; text-transform: uppercase; letter-spacing: 1px; margin-left: 8px; }
+        .preview-desc { opacity: 0.4; margin-top: 4px; font-size: 12px; }
+        .preview-contracts { opacity: 0.25; margin-top: 4px; font-size: 12px; font-family: monospace; }
+    </style>
+</head>
+<body>
+
+<nav><div class="container">
+    <a href="/" class="logo">AvaPilot <span>register</span></a>
+    <a href="index.html" class="back">← Back</a>
+</div></nav>
+
+<div class="container">
+
+<div class="hero">
+    <h1>Register your protocol</h1>
+    <p>Fill this out. We generate the code. You open a PR. Every AI agent gets your protocol.</p>
+</div>
+
+<div class="steps">
+
+    <div class="step">
+        <div class="step-label">1 — Your protocol</div>
+        <label>Name</label>
+        <input type="text" id="name" placeholder="e.g. Trader Joe, Benqi, GMX">
+        <div style="height:12px"></div>
+        <label>Description <span>one line</span></label>
+        <input type="text" id="description" placeholder="e.g. Decentralized perpetual exchange on Avalanche">
+        <div style="height:12px"></div>
+        <label>Category</label>
+        <select id="category">
+            <option value="DeFi">DeFi</option>
+            <option value="Token">Token</option>
+            <option value="NFT">NFT</option>
+            <option value="Gaming">Gaming</option>
+            <option value="Infrastructure">Infrastructure</option>
+            <option value="Other">Other</option>
+        </select>
+        <div style="height:12px"></div>
+        <label>Website <span>optional</span></label>
+        <input type="text" id="website" placeholder="https://yourprotocol.com">
+    </div>
+
+    <div class="step">
+        <div class="step-label">2 — Contracts</div>
+        <p style="font-size:13px;opacity:0.4;margin-bottom:12px">Add every contract address your protocol uses. Label them (e.g. router, factory, pool, token).</p>
+        <div class="contracts-list" id="contracts">
+            <div class="contract-row">
+                <input type="text" class="addr" placeholder="0x contract address">
+                <input type="text" class="lbl" placeholder="label" value="main">
+                <button class="btn-remove" onclick="removeContract(this)" title="Remove">×</button>
+            </div>
+        </div>
+        <button class="btn-add" onclick="addContract()">+ Add another contract</button>
+    </div>
+
+    <div class="step">
+        <button class="btn-generate" id="generateBtn" onclick="generate()">Generate PR Code</button>
+    </div>
+
+</div>
+
+<div class="output" id="output">
+    <h2>Preview</h2>
+    <div class="preview" id="preview"></div>
+
+    <h2 style="margin-top:32px">Code for seed.py</h2>
+    <p style="font-size:13px;opacity:0.4;margin-bottom:12px">Copy this and add it to <code>avapilot/registry/seed.py</code> inside the <code>SEED_SERVICES</code> list.</p>
+    <div style="position:relative">
+        <pre id="codeOutput"></pre>
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+    </div>
+
+    <div class="actions">
+        <a class="btn btn-primary" id="prLink" href="#" target="_blank">Open PR on GitHub →</a>
+        <a class="btn btn-secondary" id="issueLink" href="#" target="_blank">Open as Issue instead</a>
+    </div>
+
+    <p style="font-size:12px;opacity:0.25;margin-top:24px">Or just paste the code in a GitHub issue and we'll add it for you.</p>
+</div>
+
+</div>
+
+<footer>AvaPilot — Open source MCP gateway for Avalanche</footer>
+
+<script>
+function addContract() {
+    const list = document.getElementById('contracts');
+    const row = document.createElement('div');
+    row.className = 'contract-row';
+    row.innerHTML = `
+        <input type="text" class="addr" placeholder="0x contract address">
+        <input type="text" class="lbl" placeholder="label">
+        <button class="btn-remove" onclick="removeContract(this)" title="Remove">×</button>
+    `;
+    list.appendChild(row);
+}
+
+function removeContract(btn) {
+    const rows = document.querySelectorAll('.contract-row');
+    if (rows.length > 1) btn.parentElement.remove();
+}
+
+function generate() {
+    const name = document.getElementById('name').value.trim();
+    const desc = document.getElementById('description').value.trim();
+    const cat = document.getElementById('category').value;
+    const website = document.getElementById('website').value.trim();
+    
+    if (!name) { alert('Enter a protocol name'); return; }
+    if (!desc) { alert('Enter a description'); return; }
+    
+    const contracts = [];
+    document.querySelectorAll('.contract-row').forEach(row => {
+        const addr = row.querySelector('.addr').value.trim();
+        const label = row.querySelector('.lbl').value.trim() || 'main';
+        if (addr && addr.startsWith('0x')) {
+            contracts.push({ address: addr, label });
+        }
+    });
+    
+    if (contracts.length === 0) { alert('Add at least one contract address'); return; }
+
+    // Generate Python code
+    const contractsStr = contracts.map(c => 
+        `            {"address": "${c.address}", "label": "${c.label}"},`
+    ).join('\n');
+    
+    let code = `    {\n        "name": "${name}",\n        "contracts": [\n${contractsStr}\n        ],\n        "description": "${desc}",\n        "category": "${cat}",`;
+    if (website) code += `\n        "website": "${website}",`;
+    code += `\n    },`;
+
+    // Preview
+    const preview = document.getElementById('preview');
+    preview.innerHTML = `
+        <span class="preview-name">${name}</span><span class="preview-cat">${cat}</span>
+        <div class="preview-desc">${desc}</div>
+        <div class="preview-contracts">${contracts.map(c => `${c.label}: ${c.address.slice(0,20)}...`).join(' · ')}</div>
+    `;
+
+    // Code
+    document.getElementById('codeOutput').textContent = code;
+    
+    // Links
+    const body = encodeURIComponent(`## Add ${name} to AvaPilot\n\n**Category:** ${cat}\n**Description:** ${desc}\n${website ? `**Website:** ${website}\n` : ''}\n**Contracts:**\n${contracts.map(c => `- ${c.label}: \`${c.address}\``).join('\n')}\n\n### Code for seed.py\n\`\`\`python\n${code}\n\`\`\``);
+    
+    document.getElementById('prLink').href = `https://github.com/avapilot/avapilot/edit/main/avapilot/registry/seed.py`;
+    document.getElementById('issueLink').href = `https://github.com/avapilot/avapilot/issues/new?title=${encodeURIComponent(`Add ${name}`)}&body=${body}&labels=new-service`;
+    
+    document.getElementById('output').classList.add('show');
+    document.getElementById('output').scrollIntoView({ behavior: 'smooth' });
+}
+
+function copyCode(btn) {
+    const code = document.getElementById('codeOutput').textContent;
+    navigator.clipboard.writeText(code).then(() => {
+        btn.textContent = 'Copied!';
+        btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+    });
+}
+</script>
+
+</body>
+</html>
