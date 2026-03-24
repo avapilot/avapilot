@@ -53,7 +53,10 @@
         .step-n { font-size: 13px; font-family: monospace; color: var(--fg4); margin-bottom: 8px; }
         .step h3 { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
         .step p { color: var(--fg2); font-size: 14px; margin-bottom: 12px; }
-        pre { background: var(--surface); border: 1px solid var(--border); padding: 20px; overflow-x: auto; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px; line-height: 1.7; margin-bottom: 12px; }
+        pre { background: var(--surface); border: 1px solid var(--border); padding: 20px; padding-right: 60px; overflow-x: auto; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px; line-height: 1.7; margin-bottom: 12px; position: relative; }
+        .copy-btn { position: absolute; top: 8px; right: 8px; background: var(--surface); border: 1px solid var(--border); color: var(--fg3); padding: 4px 10px; font-size: 11px; cursor: pointer; font-family: inherit; transition: all 0.2s; }
+        .copy-btn:hover { border-color: var(--fg3); color: var(--fg); }
+        .copy-btn.copied { color: #4a4; border-color: #4a4; }
         .c { color: var(--fg4); }
 
         /* Tip box */
@@ -131,6 +134,7 @@ avapilot seed</pre>
 
 <div class="step"><div class="step-n">02</div><h3>Connect to your AI</h3>
 <p>Pick your client. Copy-paste. Restart the app.</p>
+<p style="font-size:13px;color:var(--fg3);margin-bottom:8px"><strong>Mainnet</strong> — real transactions</p>
 <pre><span class="c"># Claude Desktop → claude_desktop_config.json</span>
 {
   "mcpServers": {
@@ -140,10 +144,22 @@ avapilot seed</pre>
     }
   }
 }</pre>
-<pre><span class="c"># OpenClaw / Cursor / Windsurf — same pattern</span>
+<div class="tip">💡 <strong>New to AvaPilot?</strong> Start with Fuji testnet first — it's free so you can learn the system without risking real funds. Get test AVAX at <a href="https://faucet.avax.network" target="_blank">faucet.avax.network</a>.</div>
+<p style="font-size:13px;color:var(--fg3);margin-bottom:8px;margin-top:24px"><strong>Fuji testnet</strong> — free, safe to experiment</p>
+<pre><span class="c"># Claude Desktop → claude_desktop_config.json</span>
+{
+  "mcpServers": {
+    "avapilot": {
+      "command": "avapilot",
+      "args": ["gateway", "--mode", "trade", "--chain", "fuji"]
+    }
+  }
+}</pre>
+<pre><span class="c"># OpenClaw / Cursor / Windsurf — same for both</span>
 command: avapilot
-args: gateway --mode trade --chain avalanche</pre>
-<div class="tip">💡 <strong>New to AvaPilot?</strong> Start with <code>--chain fuji</code> first — it's a free testnet so you can learn the system without risking real funds. Get test AVAX at <a href="https://faucet.avax.network" target="_blank">faucet.avax.network</a>.</div>
+args: gateway --mode trade --chain avalanche
+<span class="c"># or for testnet:</span>
+args: gateway --mode trade --chain fuji</pre>
 </div>
 
 <div class="step"><div class="step-n">03</div><h3>Talk to Avalanche</h3>
@@ -292,6 +308,21 @@ if (saved) {
     document.documentElement.setAttribute('data-theme', saved);
     if (saved === 'light') document.querySelector('.theme-toggle').textContent = '🌙';
 }
+
+// Add copy buttons to all <pre> blocks
+document.querySelectorAll('pre').forEach(pre => {
+    const btn = document.createElement('button');
+    btn.className = 'copy-btn';
+    btn.textContent = 'Copy';
+    btn.onclick = function() {
+        navigator.clipboard.writeText(pre.textContent.replace('Copy', '').trim()).then(() => {
+            btn.textContent = 'Copied!';
+            btn.classList.add('copied');
+            setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+        });
+    };
+    pre.appendChild(btn);
+});
 
 // Default: user tab shown
 if (location.hash === '#dev') showTab('dev');
