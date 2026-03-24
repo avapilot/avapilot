@@ -9,21 +9,38 @@ import requests
 from avapilot.runtime.config import PCHAIN_RPC
 
 
+PCHAIN_FALLBACK_RPCS = [
+    "https://avalanche-p-chain-rpc.publicnode.com",
+]
+
 def _rpc(method: str, params: dict | None = None, endpoint: str | None = None) -> dict:
-    """Make a JSON-RPC call to the P-Chain."""
-    url = endpoint or PCHAIN_RPC["mainnet"]
+    """Make a JSON-RPC call to the P-Chain with fallback RPCs."""
+    primary = endpoint or PCHAIN_RPC["mainnet"]
+    urls = [primary]
+    if primary == PCHAIN_RPC["mainnet"]:
+        urls.extend(PCHAIN_FALLBACK_RPCS)
+    
     payload = {
         "jsonrpc": "2.0",
         "id": 1,
         "method": method,
         "params": params or {},
     }
-    resp = requests.post(url, json=payload, timeout=30)
-    resp.raise_for_status()
-    data = resp.json()
-    if "error" in data:
-        raise RuntimeError(f"P-Chain RPC error: {data['error']}")
-    return data.get("result", {})
+    
+    last_error = None
+    for url in urls:
+        try:
+            resp = requests.post(url, json=payload, timeout=15)
+            resp.raise_for_status()
+            data = resp.json()
+            if "error" in data:
+                last_error = RuntimeError(f"P-Chain RPC error: {data[chr(39)+'error'+chr(39)]}")
+                continue
+            return data.get("result", {})
+        except Exception as e:
+            last_error = e
+            continue
+    raise last_error or RuntimeError("All P-Chain RPCs failed")
 
 
 def get_subnets(endpoint: str | None = None) -> list[dict]:
