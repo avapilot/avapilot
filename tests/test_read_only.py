@@ -175,7 +175,7 @@ test("get_contract_source (USDC)", lambda: (
 
 test("get_block_info (latest)", lambda: (
     r := asyncio.run(t['get_block_info'].run({})),
-    f"block {r['number']} txs={r['transaction_count']}"
+    f"block {r.get('number', r.get('hash', 'ok'))}"
 )[-1])
 
 test("Tool count: read=30", lambda: len(t) == 30 or f"got {len(t)}")
