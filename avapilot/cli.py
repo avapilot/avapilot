@@ -71,16 +71,6 @@ def cmd_generate(args):
     print("   See README.md for Claude Desktop / OpenClaw setup.")
 
 
-def cmd_serve(args):
-    """Start the marketplace server."""
-    from avapilot.marketplace.app import create_app
-    import uvicorn
-
-    port = args.port or 3000
-    print(f"🏪 Starting AvaPilot Marketplace on port {port}...")
-    app = create_app()
-    uvicorn.run(app, host="0.0.0.0", port=port)
-
 
 def cmd_tools(args):
     """Start the Avalanche MCP Gateway in the selected mode."""
@@ -370,32 +360,6 @@ def cmd_api(args):
     from avapilot.api import run_api
     run_api(port=args.port)
 
-def cmd_publish(args):
-    """Publish an MCP server to the marketplace."""
-    import requests as http_requests
-    import json
-
-    url = args.marketplace_url or "http://localhost:3000"
-    
-    payload = {
-        "name": args.name,
-        "description": args.description or "",
-        "contracts": args.contracts.split(",") if args.contracts else [],
-        "chain": args.chain,
-        "repo_url": args.repo or "",
-        "tags": args.tags.split(",") if args.tags else [],
-    }
-
-    print(f"📤 Publishing '{args.name}' to {url}...")
-    try:
-        resp = http_requests.post(f"{url}/api/listings", json=payload, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-        print(f"✅ Published! ID: {data.get('id')}")
-    except Exception as e:
-        print(f"❌ Failed to publish: {e}")
-        sys.exit(1)
-
 
 def main():
     parser = argparse.ArgumentParser(
@@ -413,10 +377,6 @@ def main():
     gen.add_argument("--api-key", help="Block explorer API key")
     gen.set_defaults(func=cmd_generate)
 
-    # serve
-    srv = subparsers.add_parser("serve", help="Start marketplace server")
-    srv.add_argument("--port", "-p", type=int, default=3000, help="Port (default: 3000)")
-    srv.set_defaults(func=cmd_serve)
 
     # tools / gateway
     tools = subparsers.add_parser("tools", help="Start the Avalanche MCP Gateway")
@@ -478,16 +438,6 @@ def main():
     ins.add_argument("name", help="Service name or ID")
     ins.set_defaults(func=cmd_inspect)
 
-    # publish
-    pub = subparsers.add_parser("publish", help="Publish MCP server to marketplace")
-    pub.add_argument("--name", required=True, help="dApp name")
-    pub.add_argument("--description", "-d", help="Description")
-    pub.add_argument("--contracts", "-c", help="Comma-separated contract addresses")
-    pub.add_argument("--chain", default="avalanche", help="Chain")
-    pub.add_argument("--repo", help="GitHub repo URL")
-    pub.add_argument("--tags", help="Comma-separated tags")
-    pub.add_argument("--marketplace-url", default="http://localhost:3000", help="Marketplace URL")
-    pub.set_defaults(func=cmd_publish)
 
     args = parser.parse_args()
     args.func(args)
