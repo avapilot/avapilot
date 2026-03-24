@@ -77,6 +77,8 @@ def cmd_tools(args):
     from avapilot.avalanche.gateway import create_gateway
 
     mode = args.mode
+    chain = getattr(args, "chain", "avalanche")
+    chain_label = "⚠️  FUJI TESTNET" if chain == "fuji" else "MAINNET"
     labels = {
         "read": "READ mode — safe queries only, no wallet needed",
         "trade": "TRADE mode — read + send/swap/approve (wallet required)",
@@ -85,8 +87,9 @@ def cmd_tools(args):
     import sys
     print(f"🔺 Starting Avalanche MCP Gateway", file=sys.stderr)
     print(f"   {labels[mode]}", file=sys.stderr)
+    print(f"   Network: {chain_label}", file=sys.stderr)
     print(file=sys.stderr)
-    gateway = create_gateway(mode)
+    gateway = create_gateway(mode, chain=chain)
     gateway.run()
 
 
@@ -389,6 +392,7 @@ def main():
     tools.set_defaults(func=cmd_tools)
 
     gateway = subparsers.add_parser("gateway", help="Start the Avalanche MCP Gateway (alias for tools)")
+    gateway.add_argument("--chain", "-c", choices=["avalanche", "fuji"], default="avalanche", help="Network (default: avalanche mainnet)")
     gateway.add_argument(
         "--mode", "-m",
         choices=["read", "trade", "full"],

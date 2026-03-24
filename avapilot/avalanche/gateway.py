@@ -27,7 +27,7 @@ MODE_DESCRIPTIONS = {
 }
 
 
-def create_gateway(mode: str = "read", registry_path: str | None = None) -> FastMCP:
+def create_gateway(mode: str = "read", registry_path: str | None = None, chain: str = "avalanche") -> FastMCP:
     """Create an MCP server with lazy service discovery.
 
     Built-in tools are always loaded. Registered services are accessed
@@ -36,30 +36,47 @@ def create_gateway(mode: str = "read", registry_path: str | None = None) -> Fast
     if mode not in MODES:
         raise ValueError(f"Unknown mode {mode!r}. Choose from: {', '.join(sorted(MODES))}")
 
-    mcp = FastMCP(MODE_DESCRIPTIONS[mode])
+    chain_label = "fuji testnet" if chain == "fuji" else "mainnet"
+    mcp = FastMCP(f"{MODE_DESCRIPTIONS[mode]} [{chain_label}]")
 
     # 1. Built-in tools
-    tools_read.register(mcp)
+    tools_read.register(mcp, chain=chain)
     if mode in ("trade", "full"):
-        tools_trade.register(mcp)
+        tools_trade.register(mcp, chain=chain)
     if mode == "full":
-        tools_full.register(mcp)
+        tools_full.register(mcp, chain=chain)
 
     # 2. Lazy discovery + execution tools
     try:
         from avapilot.registry import ServiceRegistry
         registry = ServiceRegistry(registry_path)
-        _register_lazy_tools(mcp, registry, mode)
+        _register_lazy_tools(mcp, registry, mode, chain=chain)
     except Exception:
         pass
 
     return mcp
 
 
-def _register_lazy_tools(mcp: FastMCP, registry, mode: str):
+def _register_lazy_tools(mcp: FastMCP, registry, mode: str, chain: str = "avalanche"):
     """Register discovery and execution tools for lazy service access."""
     from avapilot.runtime.config import get_chain_config
     from avapilot.runtime.evm import read_contract, build_transaction
+
+    @mcp.tool(
+        name="gateway_info",
+        description="Show current gateway configuration — network, mode, and chain. Check this before executing transactions.",
+    )
+    def gateway_info() -> str:
+        """Returns the current gateway network and mode."""
+        chain_name = "Fuji Testnet" if chain == "fuji" else "Avalanche Mainnet"
+        chain_id = 43113 if chain == "fuji" else 43114
+        return json.dumps({
+            "network": chain_name,
+            "chain": chain,
+            "chain_id": chain_id,
+            "mode": mode,
+            "warning": "All transactions will be sent to " + chain_name,
+        })
 
     @mcp.tool(
         name="search_services",

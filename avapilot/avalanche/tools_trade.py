@@ -15,23 +15,25 @@ from avapilot.avalanche._helpers import (
 from avapilot.runtime.config import get_chain_config, AVALANCHE_TOKENS, AVALANCHE_DAPPS
 
 
-def register(mcp: FastMCP) -> None:
+def register(mcp: FastMCP, chain: str = "avalanche") -> None:
     """Register trade tools on the given MCP server."""
+    default_chain = chain
 
     # ── Wallet Tools ─────────────────────────────────────────────────────
 
     @mcp.tool()
     def wallet_status() -> dict:
-        """Check if wallet is configured, show address and AVAX balance."""
+        """Check if wallet is configured, show address, AVAX balance, and current network."""
         if not wallet.is_wallet_configured():
             return {
                 "configured": False,
                 "message": "No wallet configured. Set AVAPILOT_PRIVATE_KEY environment variable.",
             }
         address = wallet.get_address()
-        result = {"configured": True, "address": address}
+        chain_label = "Fuji Testnet" if default_chain == "fuji" else "Mainnet"
+        result = {"configured": True, "address": address, "network": chain_label, "chain": default_chain}
         try:
-            w3 = get_w3()
+            w3 = get_w3(default_chain)
             balance_wei = w3.eth.get_balance(address)
             result["avax_balance"] = from_token_units(balance_wei, 18)
         except Exception as e:
@@ -42,14 +44,16 @@ def register(mcp: FastMCP) -> None:
     def wallet_address() -> dict:
         """Return the connected wallet address."""
         require_wallet()
+        chain = chain or default_chain
         return {"address": wallet.get_address()}
 
     # ── Send / Transfer Tools ────────────────────────────────────────────
 
     @mcp.tool()
-    def send_avax(to_address: str, amount_avax: float, chain: str = "avalanche") -> dict:
+    def send_avax(to_address: str, amount_avax: float, chain: str = "") -> dict:
         """Send native AVAX to an address. Amount in AVAX (e.g., 1.5). Use chain=\"fuji\" for testnet."""
         require_wallet()
+        chain = chain or default_chain
         to = Web3.to_checksum_address(to_address)
         value_wei = to_token_units(amount_avax, 18)
         w3 = get_w3(chain)
@@ -77,9 +81,10 @@ def register(mcp: FastMCP) -> None:
         }
 
     @mcp.tool()
-    def send_token(token_symbol_or_address: str, to_address: str, amount: float, chain: str = "avalanche") -> dict:
+    def send_token(token_symbol_or_address: str, to_address: str, amount: float, chain: str = "") -> dict:
         """Send ERC-20 tokens to an address. Amount in human-readable units (e.g., 100 USDC). Use chain=\"fuji\" for testnet."""
         require_wallet()
+        chain = chain or default_chain
         token_addr = resolve_token(token_symbol_or_address)
         to = Web3.to_checksum_address(to_address)
         w3 = get_w3()
@@ -114,9 +119,10 @@ def register(mcp: FastMCP) -> None:
     # ── Wrap / Unwrap AVAX ───────────────────────────────────────────────
 
     @mcp.tool()
-    def wrap_avax(amount_avax: float, chain: str = "avalanche") -> dict:
+    def wrap_avax(amount_avax: float, chain: str = "") -> dict:
         """Wrap AVAX to WAVAX. Amount in AVAX (e.g., 1.5). Use chain=\"fuji\" for testnet."""
         require_wallet()
+        chain = chain or default_chain
         from avapilot.runtime.config import get_token_address; wavax_addr = Web3.to_checksum_address(get_token_address("WAVAX", chain))
         value_wei = to_token_units(amount_avax, 18)
         w3 = get_w3(chain)
@@ -143,9 +149,10 @@ def register(mcp: FastMCP) -> None:
         }
 
     @mcp.tool()
-    def unwrap_avax(amount_wavax: float, chain: str = "avalanche") -> dict:
+    def unwrap_avax(amount_wavax: float, chain: str = "") -> dict:
         """Unwrap WAVAX back to native AVAX. Amount in WAVAX (e.g., 1.5). Use chain=\"fuji\" for testnet."""
         require_wallet()
+        chain = chain or default_chain
         from avapilot.runtime.config import get_token_address; wavax_addr = Web3.to_checksum_address(get_token_address("WAVAX", chain))
         raw_amount = to_token_units(amount_wavax, 18)
         w3 = get_w3(chain)
@@ -172,9 +179,10 @@ def register(mcp: FastMCP) -> None:
     # ── Token Approval ───────────────────────────────────────────────────
 
     @mcp.tool()
-    def approve_token(token_address: str, spender_address: str, amount: float, chain: str = "avalanche") -> dict:
+    def approve_token(token_address: str, spender_address: str, amount: float, chain: str = "") -> dict:
         """Approve an address to spend ERC-20 tokens on your behalf. Use chain=\"fuji\" for testnet."""
         require_wallet()
+        chain = chain or default_chain
         token_addr = resolve_token(token_address)
         spender = Web3.to_checksum_address(spender_address)
         w3 = get_w3()
@@ -208,13 +216,14 @@ def register(mcp: FastMCP) -> None:
         token_in: str,
         token_out: str,
         slippage_percent: float = 0.5,
-        chain: str = "avalanche",
+        chain: str = "",
     ) -> dict:
         """Swap tokens on Trader Joe. Amount in human-readable units. Slippage default 0.5%.
 
         Handles AVAX<->token and token<->token swaps automatically.
         """
         require_wallet()
+        chain = chain or default_chain
         router_addr = Web3.to_checksum_address(AVALANCHE_DAPPS["trader_joe_router"])
         from avapilot.runtime.config import get_token_address; wavax = Web3.to_checksum_address(get_token_address("WAVAX", chain))
         w3 = get_w3(chain)

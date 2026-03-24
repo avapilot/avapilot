@@ -15,7 +15,7 @@ from avapilot.runtime.config import (
 from avapilot.runtime.evm import fetch_abi
 
 
-def register(mcp: FastMCP) -> None:
+def register(mcp: FastMCP, chain: str = "avalanche") -> None:
     """Register all read-only tools on the given MCP server."""
 
     # ── Network Info ─────────────────────────────────────────────────────

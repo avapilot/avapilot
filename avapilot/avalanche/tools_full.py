@@ -11,7 +11,7 @@ from avapilot.runtime.config import get_chain_config
 from avapilot.runtime.evm import fetch_abi
 
 
-def register(mcp: FastMCP) -> None:
+def register(mcp: FastMCP, chain: str = "avalanche") -> None:
     """Register power-user tools on the given MCP server."""
 
     @mcp.tool()
