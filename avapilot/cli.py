@@ -214,6 +214,22 @@ def cmd_services(args):
         print()
 
 
+def cmd_unregister(args):
+    """Remove a service from the local registry."""
+    from avapilot.registry import ServiceRegistry
+
+    registry = ServiceRegistry()
+    name = args.name
+
+    svc = registry.get_service(name)
+    if not svc:
+        print(f"❌ Service '{name}' not found.")
+        return
+
+    registry.remove_service(name)
+    print(f"🗑️  Removed '{name}' from registry.")
+
+
 def cmd_seed(args):
     """Seed the registry with well-known Avalanche dApps."""
     from avapilot.registry import ServiceRegistry
@@ -415,6 +431,11 @@ def main():
     reg.add_argument("--category", help="Category (DeFi, NFT, Gaming, Token, Infrastructure)")
     reg.add_argument("--website", help="Website URL")
     reg.set_defaults(func=cmd_register)
+
+    # unregister
+    unreg = subparsers.add_parser("unregister", help="Remove a service from the registry")
+    unreg.add_argument("name", help="Service name to remove (e.g. 'GMX')")
+    unreg.set_defaults(func=cmd_unregister)
 
     # services
     svc = subparsers.add_parser("services", help="List registered services")

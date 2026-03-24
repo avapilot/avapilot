@@ -143,6 +143,7 @@ avapilot services                     # List what's registered
 avapilot inspect "Trader Joe"         # See a protocol's functions
 avapilot scan 0xAnyContract           # Analyze any contract
 avapilot register "Name" 0xAddr       # Register a new protocol
+avapilot unregister "Name"              # Remove a protocol
 avapilot info                         # Avalanche network stats
 ```
 
