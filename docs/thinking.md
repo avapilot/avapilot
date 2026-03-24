@@ -269,3 +269,53 @@ First mover wins. Nobody is doing this for Avalanche. Get there first, own the s
 Ship fast. Ship public. Ship now.
 
 — Rex 🦞
+
+---
+
+## Progress Update (2026-03-24 00:15 GMT)
+
+### What was built since the first thinking doc:
+1. **Proxy ABI resolution** — USDC went from 5 → 55 tools. Auto-detects proxy contracts, fetches implementation ABI, merges.
+2. **Chain parameter on all trade tools** — every write tool now supports `chain="fuji"` for testnet.
+3. **`scan` CLI command** — paste any contract address, get instant analysis. The "aha moment" for new users.
+4. **6 more seeded services** — Pangolin, USDT.e, JOE Token, sAVAX, ggAVAX, Stargate USDC Pool.
+5. **Dynamic tools now callable** — fixed param handling, all 211 tools in read mode work e2e.
+6. **Updated gateway-ui** — platform story, stats (11 services, 363 tools), protocol registration section.
+7. **Dynamic tools test suite** — 17/17 passing, verifies real contract calls through MCP gateway.
+
+### Current Numbers
+```
+Built-in tools:     30 read + 8 trade + 2 full = 40
+Discovery tools:    3
+Dynamic tools:      178 read + 185 write = 363
+Total (read mode):  211 tools
+Total (full mode):  ~400 tools
+
+Services registered: 11
+  Trader Joe      (DeFi)   - 24 tools
+  Pangolin        (DeFi)   - 24 tools  
+  USDC            (Token)  - 55 tools (proxy-resolved!)
+  sAVAX           (DeFi)   - 70 tools (proxy-resolved!)
+  ggAVAX          (DeFi)   - 65 tools (proxy-resolved!)
+  Stargate USDC   (DeFi)   - 61 tools
+  JOE Token       (Token)  - 26 tools
+  USDT.e          (Token)  - 22 tools
+  WAVAX           (Token)  - 11 tools
+  Aave V3         (DeFi)   - 5 tools (impl not verified on Snowtrace)
+  Benqi           (DeFi)   - 0 tools (comptroller not verified)
+```
+
+### Test Results Summary
+- Fuji testnet (real txs): 18/18 ✅
+- Read-only suite: 56/56 ✅  
+- Dynamic tools e2e: 17/17 ✅
+- **Total: 91 tests, 0 failures**
+
+### Still TODO
+- [ ] Lazy discovery (search + on-demand loading) — for when services > 50
+- [ ] Web registration portal
+- [ ] `pip install avapilot` (PyPI)
+- [ ] LICENSE + CONTRIBUTING.md
+- [ ] CI/CD (GitHub Actions)
+- [ ] Better tool descriptions (LLM-enriched from ABI names)
+- [ ] Benqi: need to find verified contract or manually provide ABI
