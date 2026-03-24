@@ -240,6 +240,94 @@ def cmd_seed(args):
         print("   All services already registered.")
 
 
+def cmd_scan(args):
+    """Scan any contract address — instant analysis, no registration needed."""
+    from avapilot.runtime.evm import fetch_abi, fetch_source_code
+    from avapilot.runtime.config import get_chain_config
+    from avapilot.generator.analyzer import identify_contract_type, categorize_functions
+
+    chain = args.chain or "avalanche"
+    cfg = get_chain_config(chain)
+    addr = args.address
+
+    print(f"\n🔍 Scanning {addr} on {cfg['name']}...")
+    print()
+
+    # Source info
+    try:
+        import requests, json
+        params = {"module": "contract", "action": "getsourcecode", "address": addr, "apikey": "YourApiKeyToken"}
+        r = requests.get(cfg["explorer_api"], params=params, timeout=15)
+        info = r.json()["result"][0]
+        name = info.get("ContractName", "")
+        is_proxy = info.get("Proxy") == "1"
+        impl = info.get("Implementation", "")
+        compiler = info.get("CompilerVersion", "")
+        verified = bool(info.get("SourceCode"))
+
+        if name:
+            print(f"   Name:       {name}")
+        print(f"   Verified:   {'✅ Yes' if verified else '❌ No'}")
+        if is_proxy:
+            print(f"   Proxy:      ✅ Yes → {impl}")
+        if compiler:
+            print(f"   Compiler:   {compiler}")
+    except Exception as e:
+        print(f"   ⚠️  Could not fetch source info: {e}")
+
+    # Fetch ABI (with proxy resolution)
+    try:
+        abi = fetch_abi(addr, cfg["explorer_api"])
+    except Exception as e:
+        print(f"\n   ❌ Cannot fetch ABI: {e}")
+        print(f"      Contract may not be verified on {cfg['explorer_url']}")
+        return
+
+    # Analyze
+    analysis = identify_contract_type(abi)
+    cats = categorize_functions(abi)
+    contract_type = analysis.get("type", "Unknown")
+    read_fns = cats.get("read", [])
+    write_fns = cats.get("write", [])
+
+    print(f"   Type:       {contract_type}")
+    print(f"   Functions:  {len(read_fns)} read, {len(write_fns)} write")
+
+    # Balance check
+    try:
+        from web3 import Web3
+        from avapilot.avalanche._helpers import get_w3, from_token_units
+        w3 = get_w3(chain)
+        balance = w3.eth.get_balance(Web3.to_checksum_address(addr))
+        if balance > 0:
+            print(f"   Balance:    {from_token_units(balance, 18):.4f} AVAX")
+    except:
+        pass
+
+    print()
+
+    if read_fns:
+        print("   📖 Read Functions:")
+        for fn in read_fns:
+            inputs = ", ".join(f"{i.get('name', 'arg')}: {i['type']}" for i in fn.get("inputs", []))
+            outputs = ", ".join(o["type"] for o in fn.get("outputs", []))
+            print(f"      {fn['name']}({inputs}) → {outputs}")
+        print()
+
+    if write_fns:
+        print("   ✏️  Write Functions:")
+        for fn in write_fns[:15]:
+            inputs = ", ".join(f"{i.get('name', 'arg')}: {i['type']}" for i in fn.get("inputs", []))
+            print(f"      {fn['name']}({inputs})")
+        if len(write_fns) > 15:
+            print(f"      ... and {len(write_fns) - 15} more")
+        print()
+
+    print(f"   💡 To add this to your gateway:")
+    print(f"      python cli.py register \"{name or 'MyService'}\" {addr}")
+    print()
+
+
 def cmd_inspect(args):
     """Inspect a registered service — show contracts and all tools."""
     from avapilot.registry import ServiceRegistry
@@ -366,6 +454,12 @@ def main():
     # seed
     sd = subparsers.add_parser("seed", help="Seed registry with known Avalanche dApps")
     sd.set_defaults(func=cmd_seed)
+
+    # scan (no registration needed)
+    sc = subparsers.add_parser("scan", help="Scan any contract — instant analysis")
+    sc.add_argument("address", help="Contract address (0x...)")
+    sc.add_argument("--chain", default="avalanche", help="Chain (default: avalanche)")
+    sc.set_defaults(func=cmd_scan)
 
     # inspect
     ins = subparsers.add_parser("inspect", help="Inspect a registered service")
