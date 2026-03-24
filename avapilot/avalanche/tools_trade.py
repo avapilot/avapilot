@@ -46,12 +46,12 @@ def register(mcp: FastMCP) -> None:
     # ── Send / Transfer Tools ────────────────────────────────────────────
 
     @mcp.tool()
-    def send_avax(to_address: str, amount_avax: float) -> dict:
-        """Send native AVAX to an address. Amount in AVAX (e.g., 1.5)."""
+    def send_avax(to_address: str, amount_avax: float, chain: str = "avalanche") -> dict:
+        """Send native AVAX to an address. Amount in AVAX (e.g., 1.5). Use chain=\"fuji\" for testnet."""
         require_wallet()
         to = Web3.to_checksum_address(to_address)
         value_wei = to_token_units(amount_avax, 18)
-        w3 = get_w3()
+        w3 = get_w3(chain)
         sender = wallet.get_address()
         balance = w3.eth.get_balance(sender)
         if balance < value_wei:
@@ -65,8 +65,8 @@ def register(mcp: FastMCP) -> None:
         print(f"  Gas: {estimated_gas} units @ {from_token_units(gas_price_val, 9):.2f} gwei")
         print(f"  Total cost: ~{from_token_units(total_cost, 18):.6f} AVAX")
         tx = {"to": to, "value": value_wei, "gas": estimated_gas}
-        tx_hash = wallet.sign_and_send(tx)
-        receipt = wallet.wait_for_receipt(tx_hash)
+        tx_hash = wallet.sign_and_send(tx, chain=chain)
+        receipt = wallet.wait_for_receipt(tx_hash, chain=chain)
         return {
             "tx_hash": f"0x{tx_hash}" if not tx_hash.startswith("0x") else tx_hash,
             "status": "success" if receipt.get("status") == 1 else "failed",
@@ -76,8 +76,8 @@ def register(mcp: FastMCP) -> None:
         }
 
     @mcp.tool()
-    def send_token(token_symbol_or_address: str, to_address: str, amount: float) -> dict:
-        """Send ERC-20 tokens to an address. Amount in human-readable units (e.g., 100 USDC)."""
+    def send_token(token_symbol_or_address: str, to_address: str, amount: float, chain: str = "avalanche") -> dict:
+        """Send ERC-20 tokens to an address. Amount in human-readable units (e.g., 100 USDC). Use chain=\"fuji\" for testnet."""
         require_wallet()
         token_addr = resolve_token(token_symbol_or_address)
         to = Web3.to_checksum_address(to_address)
@@ -96,11 +96,11 @@ def register(mcp: FastMCP) -> None:
         tx_data = contract.functions.transfer(to, raw_amount).build_transaction({
             "from": sender,
             "nonce": w3.eth.get_transaction_count(sender),
-            "chainId": get_chain_config("avalanche")["chain_id"],
+            "chainId": get_chain_config(chain)["chain_id"],
             "gasPrice": w3.eth.gas_price,
         })
-        tx_hash = wallet.sign_and_send(tx_data)
-        receipt = wallet.wait_for_receipt(tx_hash)
+        tx_hash = wallet.sign_and_send(tx_data, chain=chain)
+        receipt = wallet.wait_for_receipt(tx_hash, chain=chain)
         return {
             "tx_hash": f"0x{tx_hash}" if not tx_hash.startswith("0x") else tx_hash,
             "status": "success" if receipt.get("status") == 1 else "failed",
@@ -113,12 +113,12 @@ def register(mcp: FastMCP) -> None:
     # ── Wrap / Unwrap AVAX ───────────────────────────────────────────────
 
     @mcp.tool()
-    def wrap_avax(amount_avax: float) -> dict:
-        """Wrap AVAX to WAVAX. Amount in AVAX (e.g., 1.5)."""
+    def wrap_avax(amount_avax: float, chain: str = "avalanche") -> dict:
+        """Wrap AVAX to WAVAX. Amount in AVAX (e.g., 1.5). Use chain=\"fuji\" for testnet."""
         require_wallet()
         wavax_addr = Web3.to_checksum_address(AVALANCHE_TOKENS["WAVAX"])
         value_wei = to_token_units(amount_avax, 18)
-        w3 = get_w3()
+        w3 = get_w3(chain)
         sender = wallet.get_address()
         balance = w3.eth.get_balance(sender)
         if balance < value_wei:
@@ -129,11 +129,11 @@ def register(mcp: FastMCP) -> None:
             "from": sender,
             "value": value_wei,
             "nonce": w3.eth.get_transaction_count(sender),
-            "chainId": get_chain_config("avalanche")["chain_id"],
+            "chainId": get_chain_config(chain)["chain_id"],
             "gasPrice": w3.eth.gas_price,
         })
-        tx_hash = wallet.sign_and_send(tx_data)
-        receipt = wallet.wait_for_receipt(tx_hash)
+        tx_hash = wallet.sign_and_send(tx_data, chain=chain)
+        receipt = wallet.wait_for_receipt(tx_hash, chain=chain)
         return {
             "tx_hash": f"0x{tx_hash}" if not tx_hash.startswith("0x") else tx_hash,
             "status": "success" if receipt.get("status") == 1 else "failed",
@@ -142,12 +142,12 @@ def register(mcp: FastMCP) -> None:
         }
 
     @mcp.tool()
-    def unwrap_avax(amount_wavax: float) -> dict:
-        """Unwrap WAVAX back to native AVAX. Amount in WAVAX (e.g., 1.5)."""
+    def unwrap_avax(amount_wavax: float, chain: str = "avalanche") -> dict:
+        """Unwrap WAVAX back to native AVAX. Amount in WAVAX (e.g., 1.5). Use chain=\"fuji\" for testnet."""
         require_wallet()
         wavax_addr = Web3.to_checksum_address(AVALANCHE_TOKENS["WAVAX"])
         raw_amount = to_token_units(amount_wavax, 18)
-        w3 = get_w3()
+        w3 = get_w3(chain)
         sender = wallet.get_address()
         contract = w3.eth.contract(address=wavax_addr, abi=WAVAX_ABI)
         balance = contract.functions.balanceOf(sender).call()
@@ -157,11 +157,11 @@ def register(mcp: FastMCP) -> None:
         tx_data = contract.functions.withdraw(raw_amount).build_transaction({
             "from": sender,
             "nonce": w3.eth.get_transaction_count(sender),
-            "chainId": get_chain_config("avalanche")["chain_id"],
+            "chainId": get_chain_config(chain)["chain_id"],
             "gasPrice": w3.eth.gas_price,
         })
-        tx_hash = wallet.sign_and_send(tx_data)
-        receipt = wallet.wait_for_receipt(tx_hash)
+        tx_hash = wallet.sign_and_send(tx_data, chain=chain)
+        receipt = wallet.wait_for_receipt(tx_hash, chain=chain)
         return {
             "tx_hash": f"0x{tx_hash}" if not tx_hash.startswith("0x") else tx_hash,
             "status": "success" if receipt.get("status") == 1 else "failed",
@@ -171,8 +171,8 @@ def register(mcp: FastMCP) -> None:
     # ── Token Approval ───────────────────────────────────────────────────
 
     @mcp.tool()
-    def approve_token(token_address: str, spender_address: str, amount: float) -> dict:
-        """Approve an address to spend ERC-20 tokens on your behalf. Amount in human-readable units."""
+    def approve_token(token_address: str, spender_address: str, amount: float, chain: str = "avalanche") -> dict:
+        """Approve an address to spend ERC-20 tokens on your behalf. Use chain=\"fuji\" for testnet."""
         require_wallet()
         token_addr = resolve_token(token_address)
         spender = Web3.to_checksum_address(spender_address)
@@ -186,11 +186,11 @@ def register(mcp: FastMCP) -> None:
         tx_data = contract.functions.approve(spender, raw_amount).build_transaction({
             "from": sender,
             "nonce": w3.eth.get_transaction_count(sender),
-            "chainId": get_chain_config("avalanche")["chain_id"],
+            "chainId": get_chain_config(chain)["chain_id"],
             "gasPrice": w3.eth.gas_price,
         })
-        tx_hash = wallet.sign_and_send(tx_data)
-        receipt = wallet.wait_for_receipt(tx_hash)
+        tx_hash = wallet.sign_and_send(tx_data, chain=chain)
+        receipt = wallet.wait_for_receipt(tx_hash, chain=chain)
         return {
             "tx_hash": f"0x{tx_hash}" if not tx_hash.startswith("0x") else tx_hash,
             "status": "success" if receipt.get("status") == 1 else "failed",
@@ -207,6 +207,7 @@ def register(mcp: FastMCP) -> None:
         token_in: str,
         token_out: str,
         slippage_percent: float = 0.5,
+        chain: str = "avalanche",
     ) -> dict:
         """Swap tokens on Trader Joe. Amount in human-readable units. Slippage default 0.5%.
 
@@ -215,7 +216,7 @@ def register(mcp: FastMCP) -> None:
         require_wallet()
         router_addr = Web3.to_checksum_address(AVALANCHE_DAPPS["trader_joe_router"])
         wavax = Web3.to_checksum_address(AVALANCHE_TOKENS["WAVAX"])
-        w3 = get_w3()
+        w3 = get_w3(chain)
         sender = wallet.get_address()
         deadline = int(time.time()) + 1200
 
@@ -244,7 +245,7 @@ def register(mcp: FastMCP) -> None:
         print(f"  Min output (after {slippage_percent}% slippage): {from_token_units(min_out, out_decimals)}")
         print(f"  Path: {' -> '.join(path)}")
 
-        chain_id = get_chain_config("avalanche")["chain_id"]
+        chain_id = get_chain_config(chain)["chain_id"]
         nonce = w3.eth.get_transaction_count(sender)
         gas_price_val = w3.eth.gas_price
 
@@ -277,8 +278,8 @@ def register(mcp: FastMCP) -> None:
                 "gasPrice": gas_price_val,
             })
 
-        tx_hash = wallet.sign_and_send(tx_data)
-        receipt = wallet.wait_for_receipt(tx_hash)
+        tx_hash = wallet.sign_and_send(tx_data, chain=chain)
+        receipt = wallet.wait_for_receipt(tx_hash, chain=chain)
 
         return {
             "tx_hash": f"0x{tx_hash}" if not tx_hash.startswith("0x") else tx_hash,
