@@ -208,3 +208,7 @@ __marimo__/
 /docs
 CLAUDE.md
 key.json
+shit_test/
+support_repo/*.db
+__pycache__/
+.env

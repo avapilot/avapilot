@@ -12,21 +12,9 @@ import requests
 import json
 from web3 import Web3
 from contract_analyzer import identify_contract_type, explain_contract
-
-# mainnet
-# SNOWTRACE_API_URL = "https://api.snowtrace.io/api"
-# Snowtrace API configuration - TESTNET
-SNOWTRACE_API_URL = "https://api-testnet.snowtrace.io/api"  # ← CHANGED
-SNOWTRACE_API_KEY = "placeholder"
-
-# Hardcoded token addresses for Fuji Testnet
-FUJI_TOKEN_ADDRESSES = {
-    "WAVAX": "0x1d308089a2d1ced3f1ce36b1fcaf815b07217be3",
-    "USDC": "0x5425890298aed601595a70AB815c96711a31Bc65"
-}
-
-# RPC endpoint
-FUJI_RPC_URL = "https://api.avax-test.network/ext/bc/C/rpc"
+from network_config import (
+    RPC_URL, EXPLORER_API_URL, EXPLORER_API_KEY, TOKEN_ADDRESSES, NETWORK_NAME,
+)
 
 
 # ============================================
@@ -35,7 +23,7 @@ FUJI_RPC_URL = "https://api.avax-test.network/ext/bc/C/rpc"
 
 def get_token_address_impl(token_symbol: str) -> str:
     """Implementation that can be called from Python directly"""
-    address = FUJI_TOKEN_ADDRESSES.get(token_symbol.upper(), "Error: Token not found.")
+    address = TOKEN_ADDRESSES.get(token_symbol.upper(), "Error: Token not found.")
     print(f"  [IMPL] get_token_address({token_symbol}) → {address}")
     return address
 
@@ -48,11 +36,11 @@ def get_contract_abi_impl(contract_address: str) -> str:
         "module": "contract",
         "action": "getabi",
         "address": contract_address,
-        "apikey": SNOWTRACE_API_KEY
+        "apikey": EXPLORER_API_KEY
     }
 
     try:
-        response = requests.get(SNOWTRACE_API_URL, params=params)
+        response = requests.get(EXPLORER_API_URL, params=params)
         response.raise_for_status()
         data = response.json()
 
@@ -231,7 +219,7 @@ def generate_transaction_impl(
 @tool
 def get_token_address(token_symbol: str) -> str:
     """
-    Finds the contract address for a given token symbol on the Fuji Testnet.
+    Finds the contract address for a given token symbol on the current network.
     Supports: WAVAX, USDC
     
     Args:
@@ -390,11 +378,11 @@ def get_source_code_impl(contract_address: str) -> str:
         "module": "contract",
         "action": "getsourcecode",
         "address": contract_address,
-        "apikey": SNOWTRACE_API_KEY
+        "apikey": EXPLORER_API_KEY
     }
     
     try:
-        response = requests.get(SNOWTRACE_API_URL, params=params)
+        response = requests.get(EXPLORER_API_URL, params=params)
         response.raise_for_status()
         data = response.json()
         
@@ -449,13 +437,13 @@ def read_contract_function_impl(
     
     try:
         # Connect to RPC
-        w3 = Web3(Web3.HTTPProvider(FUJI_RPC_URL))
+        w3 = Web3(Web3.HTTPProvider(RPC_URL))
         if not w3.is_connected():
             error = "RPC connection failed"
             print(f"  ✗ {error}")
             return {"success": False, "error": error}
         
-        print(f"  ✓ Connected to Avalanche Fuji")
+        print(f"  ✓ Connected to {NETWORK_NAME}")
         
         # Get ABI
         abi = get_contract_abi_impl(contract_address)
@@ -871,16 +859,81 @@ def get_item_by_id(
                     "id": item_id,
                     "data": result['result']
                 }, indent=2)
-        
         except Exception as e:
             print(f"[GET_BY_ID] {func_name} failed: {e}")
             continue
-    
-    # None worked - return helpful error
-    return json.dumps({
-        "success": False,
-        "error": f"Could not find getter for '{item_name}' with ID {item_id}",
-        "tried_functions": variations,
-        "available_single_uint_getters": available_funcs,
-        "suggestion": f"Try: read_contract_function('{contract_address}', 'FUNCTION_NAME', [{item_id}])"
-    }, indent=2)
+
+    return json.dumps({"error": f"No matching function found for item type '{item_type}' with ID {item_id}"})
+
+
+# ============================================
+# TRANSACTION HISTORY
+# ============================================
+
+def get_transaction_history_impl(address: str, count: int = 10) -> list:
+    """Fetch last N transactions for an address from the block explorer."""
+    print(f"[TX_HISTORY] Fetching last {count} txs for {address}")
+
+    params = {
+        "module": "account",
+        "action": "txlist",
+        "address": address,
+        "startblock": 0,
+        "endblock": 99999999,
+        "page": 1,
+        "offset": count,
+        "sort": "desc",
+        "apikey": EXPLORER_API_KEY,
+    }
+
+    try:
+        resp = requests.get(EXPLORER_API_URL, params=params, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+
+        if data.get("status") != "1":
+            return [{"error": data.get("message", "No transactions found")}]
+
+        txs = []
+        for tx in data.get("result", [])[:count]:
+            value_wei = int(tx.get("value", "0"))
+            value_avax = value_wei / 1e18
+
+            txs.append({
+                "hash": tx["hash"],
+                "from": tx["from"],
+                "to": tx.get("to", "contract creation"),
+                "value_avax": f"{value_avax:.6f}",
+                "function": tx.get("functionName", "").split("(")[0] or "transfer",
+                "status": "success" if tx.get("isError") == "0" else "failed",
+                "timestamp": tx.get("timeStamp"),
+            })
+
+        print(f"[TX_HISTORY] Found {len(txs)} transactions")
+        return txs
+
+    except Exception as e:
+        print(f"[TX_HISTORY] Error: {e}")
+        return [{"error": str(e)}]
+
+
+@tool
+def get_transaction_history(address: str, count: int = 10) -> str:
+    """
+    Gets the last N transactions for a wallet or contract address.
+
+    Use when user asks:
+    - "Show my recent transactions"
+    - "What happened on this contract recently?"
+    - "Show last 5 transactions for 0x..."
+
+    Args:
+        address: Wallet or contract address
+        count: Number of transactions to return (default 10, max 50)
+
+    Returns:
+        JSON with list of transactions (hash, from, to, value, function, status)
+    """
+    count = min(count, 50)
+    txs = get_transaction_history_impl(address, count)
+    return json.dumps(txs, indent=2)

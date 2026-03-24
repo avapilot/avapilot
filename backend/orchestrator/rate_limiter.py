@@ -1,7 +1,5 @@
 """
-Rate Limiter - Hybrid approach
-- Short-term limits: In-memory (requests per minute)
-- Long-term limits: Firestore (requests per month)
+Rate Limiter - In-memory rate limiting (requests per minute/day)
 """
 
 from functools import wraps

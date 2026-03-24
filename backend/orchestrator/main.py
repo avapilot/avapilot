@@ -1,6 +1,5 @@
 """
 Main Flask Application - Single unified endpoint with memory
-PRODUCTION READY with input validation
 """
 
 import os
@@ -11,339 +10,212 @@ from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from chat_agent import run_chat_agent
 from error_tracker import log_error, log_warning, log_metric, ErrorType
-from google.cloud import firestore
 from rate_limiter import rate_limit
-from agent_config import config  # ← ADD THIS
+from agent_config import config
 
-# --- Configuration ---
-PROJECT_ID = "avapilot" 
-os.environ["GCLOUD_PROJECT"] = PROJECT_ID
-
-# Initialize Flask App
 app = Flask(__name__)
 CORS(app)
 
-# Widget file serving
-WIDGET_DIR = os.path.join(os.path.dirname(__file__), '../../frontend/widget')
+WIDGET_DIR = os.path.join(os.path.dirname(__file__), "../../frontend/widget")
 
-@app.route('/widget.js')
+
+@app.route("/widget.js")
 def serve_widget_js():
-    """Serve the widget loader script"""
     try:
-        return send_from_directory(WIDGET_DIR, 'widget.js', mimetype='application/javascript')
+        return send_from_directory(WIDGET_DIR, "widget.js", mimetype="application/javascript")
     except FileNotFoundError:
         return jsonify({"error": "widget.js not found"}), 404
 
-@app.route('/widget-chat.html')
+
+@app.route("/widget-chat.html")
 def serve_widget_chat():
-    """Serve the widget chat interface"""
     try:
-        return send_from_directory(WIDGET_DIR, 'widget-chat.html')
+        return send_from_directory(WIDGET_DIR, "widget-chat.html")
     except FileNotFoundError:
         return jsonify({"error": "widget-chat.html not found"}), 404
 
-@app.route('/widget/config.js')
+
+@app.route("/widget/config.js")
 def serve_widget_config():
-    """Serve widget configuration (optional)"""
     try:
-        return send_from_directory(WIDGET_DIR, 'config.js', mimetype='application/javascript')
+        return send_from_directory(WIDGET_DIR, "config.js", mimetype="application/javascript")
     except FileNotFoundError:
         return jsonify({"error": "config.js not found"}), 404
 
 
-@app.route("/health", methods=['GET'])
+@app.route("/health", methods=["GET"])
 def health():
-    """Health check endpoint for monitoring"""
     return jsonify({
         "status": "healthy",
         "service": "avapilot-orchestrator",
-        "memory": "firestore",
-        "message_limit": 20,
-        "validation": "enabled"
+        "provider": config.LLM_PROVIDER,
+        "memory": "in-memory",
+        "validation": "enabled",
     })
 
 
-@app.route("/metrics", methods=['GET'])
+@app.route("/metrics", methods=["GET"])
 def metrics():
-    """System metrics endpoint for monitoring"""
-    try:
-        db = firestore.Client(project=PROJECT_ID)
-        
-        # Get conversation count (last 24h)
-        yesterday = time.time() - 86400
-        conversations_ref = db.collection('checkpoints')
-        
-        # Count recent conversations (approximate)
-        # Note: For production, consider maintaining a separate metrics collection
-        recent_convs = 0
-        try:
-            # Sample check - in production, use dedicated metrics
-            sample_docs = conversations_ref.limit(100).stream()
-            recent_convs = sum(1 for _ in sample_docs)
-        except Exception as e:
-            log_warning("METRICS_CALCULATION_ERROR", str(e))
-        
-        return jsonify({
-            "status": "healthy",
-            "timestamp": int(time.time()),
-            "metrics": {
-                "conversations_sampled": recent_convs,
-                "memory_backend": "firestore",
-                "message_limit": 20,
-                "error_tracking": "enabled"
-            },
-            "endpoints": {
-                "chat": "/chat",
-                "health": "/health",
-                "widget": "/widget.js"
-            }
-        })
-        
-    except Exception as e:
-        log_error(
-            ErrorType.API_ERROR,
-            f"Metrics endpoint failed: {str(e)}",
-            exception=e
-        )
-        return jsonify({
-            "status": "degraded",
-            "error": "metrics unavailable"
-        }), 500
+    return jsonify({
+        "status": "healthy",
+        "timestamp": int(time.time()),
+        "metrics": {
+            "provider": config.LLM_PROVIDER,
+            "memory_backend": "in-memory",
+            "message_limit": config.MESSAGE_TRIM_LIMIT,
+        },
+        "endpoints": {"chat": "/chat", "health": "/health", "widget": "/widget.js"},
+    })
 
 
-@app.route("/chat", methods=['POST'])
-@rate_limit(window_seconds=60)  # 20 requests per minute for free tier
+@app.route("/chat", methods=["POST"])
+@rate_limit(window_seconds=60)
 def chat():
-    """
-    Unified endpoint with memory + contract scoping + rate limiting
-    """
-    # ========================================
-    # INPUT VALIDATION
-    # ========================================
-    
+    """Unified endpoint with memory + contract scoping + rate limiting"""
+
+    # --- Input validation ---
     try:
         req_json = request.get_json()
     except Exception as e:
-        log_error(
-            ErrorType.VALIDATION_ERROR,
-            "Invalid JSON in request",
-            context={"error": str(e)},
-            exception=e
-        )
+        log_error(ErrorType.VALIDATION_ERROR, "Invalid JSON", context={"error": str(e)}, exception=e)
         return jsonify({"error": "invalid JSON"}), 400
-    
+
     if not req_json:
         return jsonify({"error": "request body required"}), 400
-    
-    # 1. Validate message
+
+    # 1. Message
     message = req_json.get("message")
-    if not message:
-        return jsonify({"error": "message field is required"}), 400
-    
-    if not isinstance(message, str):
-        return jsonify({"error": "message must be a string"}), 400
-    
+    if not message or not isinstance(message, str):
+        return jsonify({"error": "message field is required and must be a string"}), 400
+
     if len(message) > config.MAX_MESSAGE_LENGTH:
-        return jsonify({
-            "error": "message too long",
-            "max_length": config.MAX_MESSAGE_LENGTH,
-            "your_length": len(message)
-        }), 400
-    
+        return jsonify({"error": "message too long", "max_length": config.MAX_MESSAGE_LENGTH}), 400
+
     message = message.strip()
-    if len(message) == 0:
+    if not message:
         return jsonify({"error": "message cannot be empty"}), 400
-    
-    # Check for XSS/injection attempts
-    suspicious_patterns = ['<script', 'javascript:', 'onerror=', 'onclick=', '<iframe']
-    message_lower = message.lower()
-    for pattern in suspicious_patterns:
-        if pattern in message_lower:
-            return jsonify({
-                "error": "message contains invalid characters",
-                "hint": "HTML/JavaScript not allowed"
-            }), 400
-    
-    # 2. Validate context
+
+    # XSS check
+    for pattern in ["<script", "javascript:", "onerror=", "onclick=", "<iframe"]:
+        if pattern in message.lower():
+            return jsonify({"error": "message contains invalid characters"}), 400
+
+    # 2. Context
     context = req_json.get("context", {})
     if not isinstance(context, dict):
         return jsonify({"error": "context must be an object"}), 400
-    
-    # 3. Validate user_address
+
+    # 3. User address
     user_address = context.get("user_address")
     if user_address:
-        if not isinstance(user_address, str):
-            return jsonify({"error": "user_address must be a string"}), 400
-        
-        if not user_address.startswith('0x') or len(user_address) != 42:
-            return jsonify({
-                "error": "invalid user_address format",
-                "expected": "0x + 40 hex characters"
-            }), 400
-        
+        if not isinstance(user_address, str) or not user_address.startswith("0x") or len(user_address) != 42:
+            return jsonify({"error": "invalid user_address format"}), 400
         try:
             int(user_address[2:], 16)
         except ValueError:
-            return jsonify({
-                "error": "user_address contains invalid characters"
-            }), 400
-    
-    # 4. Validate allowed_contract (can be string or list)
+            return jsonify({"error": "user_address contains invalid characters"}), 400
+
+    # 4. Allowed contracts
     allowed_contract = context.get("allowed_contract")
-    allowed_contracts = []  # Normalized list
+    allowed_contracts = []
 
     if allowed_contract:
-        # Support both single string and array
-        if isinstance(allowed_contract, str):
-            allowed_contracts = [allowed_contract]
-        elif isinstance(allowed_contract, list):
-            allowed_contracts = allowed_contract
-        else:
+        raw_list = [allowed_contract] if isinstance(allowed_contract, str) else allowed_contract
+        if not isinstance(raw_list, list):
             return jsonify({"error": "allowed_contract must be string or array"}), 400
-        
-        # Validate each contract address
-        for contract in allowed_contracts:
-            if not isinstance(contract, str):
-                return jsonify({"error": "all contract addresses must be strings"}), 400
-            
-            if not contract.startswith('0x') or len(contract) != 42:
-                return jsonify({
-                    "error": f"invalid contract format: {contract}",
-                    "expected": "0x + 40 hex characters"
-                }), 400
-            
+
+        for contract in raw_list:
+            if not isinstance(contract, str) or not contract.startswith("0x") or len(contract) != 42:
+                return jsonify({"error": f"invalid contract format: {contract}"}), 400
             try:
                 int(contract[2:], 16)
             except ValueError:
-                return jsonify({
-                    "error": f"contract contains invalid characters: {contract}"
-                }), 400
-    
-    # 5. Validate API key
+                return jsonify({"error": f"contract contains invalid characters: {contract}"}), 400
+            allowed_contracts.append(contract)
+
+    # 5. API key
     api_key = context.get("api_key")
     if api_key:
-        if not isinstance(api_key, str):
-            return jsonify({"error": "api_key must be a string"}), 400
-        
-        if len(api_key) > 100:
-            return jsonify({"error": "api_key too long"}), 400
-        
-        if not re.match(r'^[a-zA-Z0-9_-]+$', api_key):
-            return jsonify({
-                "error": "api_key contains invalid characters",
-                "allowed": "letters, numbers, underscore, hyphen"
-            }), 400
-    
-    # 6. Validate conversation_id
+        if not isinstance(api_key, str) or len(api_key) > 100 or not re.match(r"^[a-zA-Z0-9_-]+$", api_key):
+            return jsonify({"error": "invalid api_key"}), 400
+
+    # 6. Conversation ID
     conversation_id = req_json.get("conversation_id")
     if conversation_id:
-        if not isinstance(conversation_id, str):
-            return jsonify({"error": "conversation_id must be a string"}), 400
-        
-        if len(conversation_id) > 100:
-            return jsonify({"error": "conversation_id too long"}), 400
-        
-        if not re.match(r'^[a-zA-Z0-9_-]+$', conversation_id):
-            return jsonify({
-                "error": "invalid conversation_id format",
-                "allowed": "letters, numbers, underscore, hyphen"
-            }), 400
+        if not isinstance(conversation_id, str) or len(conversation_id) > 100:
+            return jsonify({"error": "invalid conversation_id"}), 400
+        if not re.match(r"^[a-zA-Z0-9_-]+$", conversation_id):
+            return jsonify({"error": "invalid conversation_id format"}), 400
     else:
         conversation_id = f"conv_{uuid.uuid4()}"
-    
-    # ========================================
-    # VALIDATION COMPLETE - PROCESS REQUEST
-    # ========================================
 
-    print(f"\n{'#'*60}")
+    # --- Process request ---
+    print(f"\n{'#' * 60}")
     print(f"# REQUEST: {message[:100]}{'...' if len(message) > 100 else ''}")
     print(f"# Conversation: {conversation_id}")
     if allowed_contracts:
         print(f"# Scoped to: {allowed_contracts}")
-    if api_key:
-        print(f"# API Key: ***{api_key[-4:] if len(api_key) >= 4 else '***'}")
-    print(f"{'#'*60}")
-    
-    # Log request metric
-    log_metric(
-        "chat_request",
-        1,
-        context={
-            "conversation_id": conversation_id,
-            "has_contract_scope": bool(allowed_contracts),
-            "has_api_key": bool(api_key)
-        }
-    )
-    
-    # Run chat agent with contract restriction
+    print(f"{'#' * 60}")
+
+    log_metric("chat_request", 1, context={
+        "conversation_id": conversation_id,
+        "has_contract_scope": bool(allowed_contracts),
+    })
+
     try:
         result = run_chat_agent(
             message=message,
             user_address=user_address,
             conversation_id=conversation_id,
-            allowed_contract=allowed_contracts
+            allowed_contract=allowed_contracts,
         )
     except Exception as e:
         log_error(
             ErrorType.CHAT_AGENT_FAILURE,
-            f"Chat agent failed: {str(e)}",
-            context={
-                "conversation_id": conversation_id,
-                "message_preview": message[:100],
-                "user_address": user_address,
-                "allowed_contract": allowed_contracts
-            },
-            exception=e
+            f"Chat agent failed: {e}",
+            context={"conversation_id": conversation_id, "message_preview": message[:100]},
+            exception=e,
         )
         return jsonify({
             "conversation_id": conversation_id,
             "response_type": "error",
-            "payload": {"message": "Internal error occurred. Please try again."}
+            "payload": {"message": "Internal error occurred. Please try again."},
         }), 500
-    
-    # CRITICAL: Validate transaction target (defense in depth)
+
+    # Security: validate transaction target
     if result["type"] == "transaction":
         tx_target = result["transaction"]["to"].lower()
-        
         if allowed_contracts and tx_target not in [c.lower() for c in allowed_contracts]:
-            print(f"[SECURITY] 🚨 Transaction blocked: {tx_target} not in {allowed_contracts}")
+            print(f"[SECURITY] Transaction blocked: {tx_target} not in {allowed_contracts}")
             return jsonify({
                 "conversation_id": conversation_id,
                 "response_type": "error",
-                "payload": {
-                    "message": f"🚨 Security violation: Transaction targets {tx_target} but widget is scoped to {allowed_contracts}"
-                }
+                "payload": {"message": f"Security violation: transaction targets {tx_target} outside allowed scope"},
             }), 403
-    
-    print(f"{'#'*60}")
-    print(f"# COMPLETE - Type: {result['type']}")
-    print(f"{'#'*60}\n")
-    
+
+    print(f"{'#' * 60}\n# COMPLETE - Type: {result['type']}\n{'#' * 60}\n")
+
     # Build response
     if result["type"] == "transaction":
         return jsonify({
             "conversation_id": conversation_id,
             "response_type": "transaction",
-            "payload": {
-                "transaction": result["transaction"],
-                "message": result["message"]
-            }
+            "payload": {"transaction": result["transaction"], "message": result["message"]},
         })
     elif result["type"] == "error":
         return jsonify({
             "conversation_id": conversation_id,
             "response_type": "error",
-            "payload": {"message": result["message"]}
+            "payload": {"message": result["message"]},
         }), 400
-    else:  # text
+    else:
         return jsonify({
             "conversation_id": conversation_id,
             "response_type": "text",
-            "payload": {"message": result["message"]}
+            "payload": {"message": result["message"]},
         })
 
 
-# At startup, print config
 if __name__ == "__main__":
-    config.print_config()  # ← ADD THIS
-    app.run(host='0.0.0.0', port=8080, debug=True)
+    config.print_config()
+    app.run(host="0.0.0.0", port=8080, debug=True)
