@@ -32,6 +32,24 @@ AVALANCHE_TOKENS = {
     "QI": "0x8729438EB15e2C8B576fCc6AeCdA6A148776C0F5",
 }
 
+FUJI_TOKENS = {
+    "WAVAX": "0xd00ae08403B9bbb9124bB305C09058E32C39A48c",
+    "USDC": "0x5425890298aed601595a70AB815c96711a31Bc65",
+}
+
+
+def get_token_address(symbol: str, chain: str = "avalanche") -> str:
+    """Get token address for the given chain."""
+    tokens = FUJI_TOKENS if chain == "fuji" else AVALANCHE_TOKENS
+    addr = tokens.get(symbol.upper())
+    if not addr:
+        # Fallback to mainnet tokens
+        addr = AVALANCHE_TOKENS.get(symbol.upper())
+    if not addr:
+        raise ValueError(f"Unknown token '{symbol}' on {chain}")
+    return addr
+
+
 # Well-known Avalanche dApps
 AVALANCHE_DAPPS = {
     "trader_joe_router": "0x60aE616a2155Ee3d9A68541Ba4544862310933d4",

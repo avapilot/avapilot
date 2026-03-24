@@ -117,7 +117,7 @@ def register(mcp: FastMCP) -> None:
     def wrap_avax(amount_avax: float, chain: str = "avalanche") -> dict:
         """Wrap AVAX to WAVAX. Amount in AVAX (e.g., 1.5). Use chain=\"fuji\" for testnet."""
         require_wallet()
-        wavax_addr = Web3.to_checksum_address(AVALANCHE_TOKENS["WAVAX"])
+        from avapilot.runtime.config import get_token_address; wavax_addr = Web3.to_checksum_address(get_token_address("WAVAX", chain))
         value_wei = to_token_units(amount_avax, 18)
         w3 = get_w3(chain)
         sender = wallet.get_address()
@@ -146,7 +146,7 @@ def register(mcp: FastMCP) -> None:
     def unwrap_avax(amount_wavax: float, chain: str = "avalanche") -> dict:
         """Unwrap WAVAX back to native AVAX. Amount in WAVAX (e.g., 1.5). Use chain=\"fuji\" for testnet."""
         require_wallet()
-        wavax_addr = Web3.to_checksum_address(AVALANCHE_TOKENS["WAVAX"])
+        from avapilot.runtime.config import get_token_address; wavax_addr = Web3.to_checksum_address(get_token_address("WAVAX", chain))
         raw_amount = to_token_units(amount_wavax, 18)
         w3 = get_w3(chain)
         sender = wallet.get_address()
@@ -216,7 +216,7 @@ def register(mcp: FastMCP) -> None:
         """
         require_wallet()
         router_addr = Web3.to_checksum_address(AVALANCHE_DAPPS["trader_joe_router"])
-        wavax = Web3.to_checksum_address(AVALANCHE_TOKENS["WAVAX"])
+        from avapilot.runtime.config import get_token_address; wavax = Web3.to_checksum_address(get_token_address("WAVAX", chain))
         w3 = get_w3(chain)
         sender = wallet.get_address()
         deadline = int(time.time()) + 1200
