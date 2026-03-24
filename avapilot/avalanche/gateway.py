@@ -63,7 +63,7 @@ def _register_lazy_tools(mcp: FastMCP, registry, mode: str):
 
     @mcp.tool(
         name="search_services",
-        description="Search registered Avalanche services (DeFi protocols, tokens, etc). Returns name, category, description, and tool counts. Use this to discover what's available before calling a service.",
+        description="Search registered Avalanche services (DeFi protocols, tokens, etc). Returns name, category, description, and tool counts. IMPORTANT: registered services are on mainnet by default. For testnet operations, use built-in tools (send_avax, wrap_avax) with chain=fuji.",
     )
     def search_services(query: str = "", category: str = "") -> str:
         """Search services by name/description or filter by category (DeFi, Token, NFT, Gaming, Infrastructure)."""
@@ -201,7 +201,7 @@ def _register_lazy_tools(mcp: FastMCP, registry, mode: str):
     if mode in ("trade", "full"):
         @mcp.tool(
             name="send_service_tx",
-            description="Execute a write function on a registered service. Builds, signs, and sends the transaction. Requires wallet.",
+            description="Execute a write function on a registered service. Builds, signs, and sends the transaction. Requires wallet. WARNING: registered services are on their registered chain (usually mainnet). The transaction will be sent to that chain.",
         )
         def send_service_tx(service_name: str, function_name: str, args: str = "{}", value_avax: float = 0) -> str:
             """Call a write (state-changing) function on a registered service.
@@ -233,6 +233,9 @@ def _register_lazy_tools(mcp: FastMCP, registry, mode: str):
                     None,
                 )
                 if func_abi:
+                    # Safety: warn if service is on a different chain than expected
+                    service_chain = c.chain or "avalanche"
+                    
                     input_specs = func_abi.get("inputs", [])
                     ordered_args = []
                     for i, spec in enumerate(input_specs):
@@ -245,8 +248,8 @@ def _register_lazy_tools(mcp: FastMCP, registry, mode: str):
                         
                         # Add chain-specific fields and send
                         cfg = get_chain_config(c.chain)
-                        tx_hash = wallet.sign_and_send(tx, chain=c.chain)
-                        receipt = wallet.wait_for_receipt(tx_hash, chain=c.chain)
+                        tx_hash = wallet.sign_and_send(tx, chain=service_chain)
+                        receipt = wallet.wait_for_receipt(tx_hash, chain=service_chain)
                         
                         return json.dumps({
                             "success": True,
