@@ -25,6 +25,21 @@ class ServiceRegistry:
 
     # ── public API ──────────────────────────────────────────────
 
+    def _load_cached_abi(self, address: str, name: str = "") -> list:
+        """Load ABI from cached files shipped with the package."""
+        import json as _json
+        from pathlib import Path
+        abis_dir = Path(__file__).parent / "abis"
+        if not abis_dir.exists():
+            return []
+        prefix = address[:10]
+        for f in abis_dir.glob(f"{prefix}*.json"):
+            try:
+                return _json.loads(f.read_text())
+            except Exception:
+                continue
+        return []
+
     def register(
         self,
         name: str,
@@ -69,8 +84,8 @@ class ServiceRegistry:
                 data = fetch_contract_data(addr, chain, api_key)
                 abi = data["abi"]
             except Exception:
-                # If ABI fetch fails, store with empty ABI — user can update later
-                abi = []
+                # Fallback: try cached ABI from repo
+                abi = self._load_cached_abi(addr, name)
 
             if abi:
                 ct = identify_contract_type(abi)
@@ -282,3 +297,4 @@ def _build_tool_defs(service: Service) -> list[dict]:
                 "abi_item": item,
             })
     return tools
+
