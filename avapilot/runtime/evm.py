@@ -8,22 +8,76 @@ import requests
 from web3 import Web3
 
 
-def fetch_abi(contract_address: str, explorer_api_url: str, api_key: str = "") -> list:
-    """Fetch ABI from block explorer (Snowtrace, Etherscan, etc.)."""
-    params = {
-        "module": "contract",
-        "action": "getabi",
-        "address": contract_address,
-        "apikey": api_key or "YourApiKeyToken",
-    }
+def fetch_abi(contract_address: str, explorer_api_url: str, api_key: str = "", resolve_proxy: bool = True) -> list:
+    """Fetch ABI from block explorer. Auto-detects proxy contracts and merges implementation ABI."""
+    key = api_key or "YourApiKeyToken"
+
+    # Get the ABI
+    params = {"module": "contract", "action": "getabi", "address": contract_address, "apikey": key}
     resp = requests.get(explorer_api_url, params=params, timeout=15)
     resp.raise_for_status()
     data = resp.json()
-
     if data["status"] != "1":
         raise RuntimeError(f"Failed to fetch ABI: {data.get('result', data.get('message', 'Unknown error'))}")
+    proxy_abi = json.loads(data["result"])
 
-    return json.loads(data["result"])
+    if not resolve_proxy:
+        return proxy_abi
+
+    # Check if it's a proxy — fetch source info for implementation address
+    impl_address = _get_implementation_address(contract_address, explorer_api_url, key)
+    if not impl_address:
+        return proxy_abi
+
+    # Fetch implementation ABI
+    try:
+        impl_params = {"module": "contract", "action": "getabi", "address": impl_address, "apikey": key}
+        impl_resp = requests.get(explorer_api_url, params=impl_params, timeout=15)
+        impl_resp.raise_for_status()
+        impl_data = impl_resp.json()
+        if impl_data["status"] == "1":
+            impl_abi = json.loads(impl_data["result"])
+            # Merge: implementation ABI + proxy-only functions (admin, upgradeTo, etc.)
+            return _merge_abis(impl_abi, proxy_abi)
+    except Exception:
+        pass
+
+    return proxy_abi
+
+
+def _get_implementation_address(contract_address: str, explorer_api_url: str, api_key: str) -> "str | None":
+    """Check if a contract is a proxy and return the implementation address."""
+    try:
+        params = {"module": "contract", "action": "getsourcecode", "address": contract_address, "apikey": api_key}
+        resp = requests.get(explorer_api_url, params=params, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        if data["status"] == "1" and data["result"]:
+            info = data["result"][0]
+            if info.get("Proxy") == "1" and info.get("Implementation"):
+                return info["Implementation"]
+    except Exception:
+        pass
+    return None
+
+
+def _merge_abis(impl_abi: list, proxy_abi: list) -> list:
+    """Merge implementation ABI with proxy ABI. Implementation takes priority."""
+    # Build set of function signatures from implementation
+    impl_sigs = set()
+    for item in impl_abi:
+        if item.get("type") == "function":
+            impl_sigs.add(item["name"])
+
+    # Start with all implementation items
+    merged = list(impl_abi)
+
+    # Add proxy-only functions (admin, upgradeTo, etc.) that aren't in implementation
+    for item in proxy_abi:
+        if item.get("type") == "function" and item["name"] not in impl_sigs:
+            merged.append(item)
+
+    return merged
 
 
 def fetch_source_code(contract_address: str, explorer_api_url: str, api_key: str = "") -> "str | None":
