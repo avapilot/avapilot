@@ -364,6 +364,12 @@ def cmd_inspect(args):
         print()
 
 
+
+def cmd_api(args):
+    """Start the AvaPilot REST API server."""
+    from avapilot.api import run_api
+    run_api(port=args.port)
+
 def cmd_publish(args):
     """Publish an MCP server to the marketplace."""
     import requests as http_requests
@@ -461,6 +467,11 @@ def main():
     sc.add_argument("address", help="Contract address (0x...)")
     sc.add_argument("--chain", default="avalanche", help="Chain (default: avalanche)")
     sc.set_defaults(func=cmd_scan)
+
+    # api
+    ap = subparsers.add_parser("api", help="Start REST API server for gateway-ui")
+    ap.add_argument("--port", type=int, default=8080, help="Port (default: 8080)")
+    ap.set_defaults(func=cmd_api)
 
     # inspect
     ins = subparsers.add_parser("inspect", help="Inspect a registered service")
