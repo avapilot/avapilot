@@ -1,12 +1,14 @@
 """
 AvaPilot Gateway — mode-based MCP server factory.
 
-Modes:
-  read  — safe queries only, no wallet needed (default)
-  trade — read + send/swap/approve tokens (wallet required)
-  full  — trade + deploy/write arbitrary contracts (power user)
-
-Registered services from the ServiceRegistry are loaded as dynamic tools.
+Architecture: Lazy Discovery
+  - 30 built-in tools (network, validators, balances, gas, contracts)
+  - 8 trade tools (send, swap, wrap, approve)
+  - 2 full tools (deploy, write_contract)
+  - 5 discovery tools (search, info, tools, call_service, call_read)
+  
+Total: ~45 tools max. AI discovers services via search, calls them via
+call_service/call_read. No 200+ tool bloat.
 """
 
 from __future__ import annotations
@@ -26,157 +28,48 @@ MODE_DESCRIPTIONS = {
 
 
 def create_gateway(mode: str = "read", registry_path: str | None = None) -> FastMCP:
-    """Create an MCP server with the requested capability level.
+    """Create an MCP server with lazy service discovery.
 
-    Modes are additive:
-      read  → read tools only
-      trade → read + trade tools
-      full  → read + trade + full tools
-
-    All registered services from the ServiceRegistry are loaded as dynamic tools.
+    Built-in tools are always loaded. Registered services are accessed
+    via discovery tools (search → info → call), not loaded as 200+ tools.
     """
     if mode not in MODES:
         raise ValueError(f"Unknown mode {mode!r}. Choose from: {', '.join(sorted(MODES))}")
 
     mcp = FastMCP(MODE_DESCRIPTIONS[mode])
 
-    # 1. Built-in tools (always present)
+    # 1. Built-in tools
     tools_read.register(mcp)
-
     if mode in ("trade", "full"):
         tools_trade.register(mcp)
-
     if mode == "full":
         tools_full.register(mcp)
 
-    # 2. Dynamic tools from registered services
+    # 2. Lazy discovery + execution tools
     try:
         from avapilot.registry import ServiceRegistry
         registry = ServiceRegistry(registry_path)
-        services = registry.list_services()
-        for service in services:
-            _register_service_tools(mcp, service, mode)
-        # 3. Service discovery tools
-        _register_discovery_tools(mcp, registry)
+        _register_lazy_tools(mcp, registry, mode)
     except Exception:
-        # Registry unavailable — gateway still works with built-in tools
         pass
 
     return mcp
 
 
-def _register_service_tools(mcp: FastMCP, service, mode: str):
-    """Dynamically register MCP tools for every function in a service's contracts."""
-    from avapilot.registry.store import _build_tool_defs
-
-    tool_defs = _build_tool_defs(service)
-
-    for td in tool_defs:
-        is_read = td["is_read"]
-
-        # Only include write tools in trade/full modes
-        if not is_read and mode == "read":
-            continue
-
-        _create_dynamic_tool(mcp, td, service)
-
-
-def _create_dynamic_tool(mcp: FastMCP, td: dict, service):
-    """Create and register a single dynamic MCP tool from a tool definition."""
-    import inspect
+def _register_lazy_tools(mcp: FastMCP, registry, mode: str):
+    """Register discovery and execution tools for lazy service access."""
     from avapilot.runtime.config import get_chain_config
     from avapilot.runtime.evm import read_contract, build_transaction
 
-    tool_name = td["tool_name"]
-    func_name = td["function_name"]
-    contract_address = td["contract_address"]
-    chain = td["chain"]
-    abi_item = td["abi_item"]
-    is_read = td["is_read"]
-    params = td["parameters"]
-
-    # Build description
-    param_str = ", ".join(f"{p['name']}: {p['solidity_type']}" for p in params)
-    desc = f"{td['description']}({param_str})"
-    if is_read:
-        desc += " [read]"
-    else:
-        desc += " [write — returns unsigned tx]"
-
-    # We need the full ABI for the contract — find it from the service
-    contract_abi = None
-    for c in service.contracts:
-        if c.address == contract_address:
-            contract_abi = c.abi
-            break
-
-    if not contract_abi:
-        return
-
-    # Build typed function with proper parameter annotations
-    # MCP needs explicit params, not **kwargs
-    param_names = [p["name"] for p in params]
-
-    if is_read:
-        def make_read_tool(_fname, _addr, _abi, _chain, _param_names):
-            def tool_fn(kwargs: str = "{}") -> str:
-                """Dynamic read tool. Pass arguments as JSON string: {"param1": "value1", ...}"""
-                import json as _json
-                try:
-                    parsed = _json.loads(kwargs) if isinstance(kwargs, str) else kwargs
-                except:
-                    parsed = {}
-                args = [parsed.get(p, "") for p in _param_names] if _param_names else []
-                cfg = get_chain_config(_chain)
-                try:
-                    result = read_contract(cfg["rpc_url"], _addr, _abi, _fname, args)
-                    return _json.dumps({"success": True, "result": str(result)})
-                except Exception as e:
-                    return _json.dumps({"success": False, "error": str(e)})
-            tool_fn.__name__ = tool_name
-            tool_fn.__doc__ = desc + f"\n\nParameters (pass as JSON string): {', '.join(_param_names)}" if _param_names else desc
-            return tool_fn
-
-        fn = make_read_tool(func_name, contract_address, contract_abi, chain, param_names)
-    else:
-        def make_write_tool(_fname, _addr, _abi, _param_names):
-            def tool_fn(kwargs: str = "{}") -> str:
-                """Dynamic write tool. Pass arguments as JSON string. Returns unsigned transaction."""
-                import json as _json
-                try:
-                    parsed = _json.loads(kwargs) if isinstance(kwargs, str) else kwargs
-                except:
-                    parsed = {}
-                args = [parsed.get(p, "") for p in _param_names] if _param_names else []
-                try:
-                    tx = build_transaction(_addr, _abi, _fname, args)
-                    return _json.dumps({
-                        "success": True,
-                        "transaction": tx,
-                        "description": f"Call {_fname} on {_addr}",
-                    })
-                except Exception as e:
-                    return _json.dumps({"success": False, "error": str(e)})
-            tool_fn.__name__ = tool_name
-            tool_fn.__doc__ = desc + f"\n\nParameters (pass as JSON string): {', '.join(_param_names)}" if _param_names else desc
-            return tool_fn
-
-        fn = make_write_tool(func_name, contract_address, contract_abi, param_names)
-
-    mcp.tool(name=tool_name, description=desc)(fn)
-
-
-def _register_discovery_tools(mcp: FastMCP, registry):
-    """Register service discovery tools so the AI can browse registered services."""
-
     @mcp.tool(
-        name="list_services",
-        description="List all registered services on AvaPilot. Optionally filter by category or search term.",
+        name="search_services",
+        description="Search registered Avalanche services (DeFi protocols, tokens, etc). Returns name, category, description, and tool counts. Use this to discover what's available before calling a service.",
     )
-    def list_services(category: str = "", search: str = "") -> str:
+    def search_services(query: str = "", category: str = "") -> str:
+        """Search services by name/description or filter by category (DeFi, Token, NFT, Gaming, Infrastructure)."""
         services = registry.list_services(
             category=category or None,
-            search=search or None,
+            search=query or None,
         )
         result = []
         for s in services:
@@ -184,28 +77,30 @@ def _register_discovery_tools(mcp: FastMCP, registry):
                 "name": s.name,
                 "category": s.category,
                 "description": s.description,
-                "read_tools": s.total_read_tools,
-                "write_tools": s.total_write_tools,
-                "contracts": len(s.contracts),
+                "read_functions": s.total_read_tools,
+                "write_functions": s.total_write_tools,
             })
+        if not result and not query and not category:
+            return json.dumps({"message": "No services registered. Run: avapilot seed"})
         return json.dumps(result)
 
     @mcp.tool(
         name="service_info",
-        description="Get detailed information about a registered service by name.",
+        description="Get detailed info about a specific registered service — contracts, functions, types.",
     )
-    def service_info(name: str) -> str:
-        s = registry.get_service(name)
+    def service_info(service_name: str) -> str:
+        """Get details about a service including its contracts and available functions."""
+        s = registry.get_service(service_name)
         if not s:
-            return json.dumps({"error": f"Service '{name}' not found"})
+            return json.dumps({"error": f"Service '{service_name}' not found. Use search_services to find available services."})
         contracts = []
         for c in s.contracts:
             contracts.append({
                 "address": c.address,
                 "label": c.label,
                 "type": c.contract_type,
-                "read_functions": len(c.read_functions),
-                "write_functions": len(c.write_functions),
+                "read_functions": c.read_functions,
+                "write_functions": c.write_functions,
             })
         return json.dumps({
             "name": s.name,
@@ -213,25 +108,155 @@ def _register_discovery_tools(mcp: FastMCP, registry):
             "category": s.category,
             "website": s.website,
             "contracts": contracts,
-            "total_read_tools": s.total_read_tools,
-            "total_write_tools": s.total_write_tools,
         })
 
     @mcp.tool(
-        name="service_tools",
-        description="List all available tools for a registered service.",
+        name="service_functions",
+        description="List all callable functions for a service with their parameter signatures. Use this to know what args to pass to call_service.",
     )
-    def service_tools(name: str) -> str:
-        tools = registry.get_tools_for_service(name)
-        if not tools:
-            return json.dumps({"error": f"No tools found for '{name}'"})
-        result = []
-        for t in tools:
-            result.append({
-                "tool_name": t["tool_name"],
-                "function": t["function_name"],
-                "is_read": t["is_read"],
-                "parameters": t["parameters"],
-                "description": t["description"],
-            })
-        return json.dumps(result)
+    def service_functions(service_name: str) -> str:
+        """List every function for a service with parameter names and types."""
+        s = registry.get_service(service_name)
+        if not s:
+            return json.dumps({"error": f"Service '{service_name}' not found."})
+        
+        functions = []
+        for c in s.contracts:
+            for item in c.abi:
+                if item.get("type") != "function":
+                    continue
+                is_read = item.get("stateMutability") in ("view", "pure") or item.get("constant", False)
+                inputs = []
+                for inp in item.get("inputs", []):
+                    inputs.append({
+                        "name": inp.get("name") or f"arg{len(inputs)}",
+                        "type": inp["type"],
+                    })
+                outputs = [o["type"] for o in item.get("outputs", [])]
+                functions.append({
+                    "name": item["name"],
+                    "contract": c.label,
+                    "is_read": is_read,
+                    "inputs": inputs,
+                    "outputs": outputs,
+                })
+        return json.dumps(functions)
+
+    @mcp.tool(
+        name="call_service",
+        description="Call a read function on a registered service. Pass the service name, function name, and arguments as a JSON object. Returns the on-chain result.",
+    )
+    def call_service(service_name: str, function_name: str, args: str = "{}") -> str:
+        """Call a read (view/pure) function on a registered service's contract.
+        
+        Args:
+            service_name: Name of the registered service (e.g., "Trader Joe", "USDC")
+            function_name: Contract function name (e.g., "balanceOf", "getAmountsOut")
+            args: JSON object with function arguments (e.g., '{"account": "0x..."}')
+        """
+        s = registry.get_service(service_name)
+        if not s:
+            return json.dumps({"error": f"Service '{service_name}' not found. Use search_services to find available services."})
+        
+        # Parse args
+        try:
+            parsed_args = json.loads(args) if isinstance(args, str) else args
+        except json.JSONDecodeError:
+            return json.dumps({"error": f"Invalid JSON args: {args}"})
+        
+        # Find the function in the service's contracts
+        for c in s.contracts:
+            func_abi = next(
+                (item for item in c.abi if item.get("name") == function_name and item.get("type") == "function"),
+                None,
+            )
+            if func_abi:
+                # Build ordered args from the parsed dict
+                input_specs = func_abi.get("inputs", [])
+                ordered_args = []
+                for i, spec in enumerate(input_specs):
+                    name = spec.get("name") or f"arg{i}"
+                    val = parsed_args.get(name, parsed_args.get(f"arg{i}", ""))
+                    ordered_args.append(val)
+                
+                cfg = get_chain_config(c.chain)
+                try:
+                    result = read_contract(cfg["rpc_url"], c.address, c.abi, function_name, ordered_args)
+                    # Format result nicely
+                    if isinstance(result, (list, tuple)):
+                        result = [str(r) for r in result]
+                    else:
+                        result = str(result)
+                    return json.dumps({
+                        "success": True,
+                        "service": service_name,
+                        "function": function_name,
+                        "result": result,
+                    })
+                except Exception as e:
+                    return json.dumps({"success": False, "error": str(e)})
+        
+        return json.dumps({"error": f"Function '{function_name}' not found in {service_name}. Use service_functions to see available functions."})
+
+    if mode in ("trade", "full"):
+        @mcp.tool(
+            name="send_service_tx",
+            description="Execute a write function on a registered service. Builds, signs, and sends the transaction. Requires wallet.",
+        )
+        def send_service_tx(service_name: str, function_name: str, args: str = "{}", value_avax: float = 0) -> str:
+            """Call a write (state-changing) function on a registered service.
+            
+            Args:
+                service_name: Name of the registered service
+                function_name: Contract function name (e.g., "transfer", "approve")
+                args: JSON object with function arguments
+                value_avax: AVAX to send with the transaction (default 0)
+            """
+            from avapilot.avalanche import wallet
+            from avapilot.avalanche._helpers import to_token_units, from_token_units
+            
+            if not wallet.is_wallet_configured():
+                return json.dumps({"error": "Wallet not configured. Set AVAPILOT_PRIVATE_KEY environment variable."})
+            
+            s = registry.get_service(service_name)
+            if not s:
+                return json.dumps({"error": f"Service '{service_name}' not found."})
+            
+            try:
+                parsed_args = json.loads(args) if isinstance(args, str) else args
+            except json.JSONDecodeError:
+                return json.dumps({"error": f"Invalid JSON args: {args}"})
+            
+            for c in s.contracts:
+                func_abi = next(
+                    (item for item in c.abi if item.get("name") == function_name and item.get("type") == "function"),
+                    None,
+                )
+                if func_abi:
+                    input_specs = func_abi.get("inputs", [])
+                    ordered_args = []
+                    for i, spec in enumerate(input_specs):
+                        name = spec.get("name") or f"arg{i}"
+                        ordered_args.append(parsed_args.get(name, parsed_args.get(f"arg{i}", "")))
+                    
+                    try:
+                        value_wei = to_token_units(value_avax, 18) if value_avax else 0
+                        tx = build_transaction(c.address, c.abi, function_name, ordered_args, value_wei=value_wei)
+                        
+                        # Add chain-specific fields and send
+                        cfg = get_chain_config(c.chain)
+                        tx_hash = wallet.sign_and_send(tx, chain=c.chain)
+                        receipt = wallet.wait_for_receipt(tx_hash, chain=c.chain)
+                        
+                        return json.dumps({
+                            "success": True,
+                            "service": service_name,
+                            "function": function_name,
+                            "tx_hash": tx_hash if tx_hash.startswith("0x") else f"0x{tx_hash}",
+                            "status": "confirmed" if receipt.get("status") == 1 else "reverted",
+                            "gas_used": receipt.get("gasUsed"),
+                        })
+                    except Exception as e:
+                        return json.dumps({"success": False, "error": str(e)})
+            
+            return json.dumps({"error": f"Function '{function_name}' not found in {service_name}."})
