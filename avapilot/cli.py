@@ -206,7 +206,7 @@ def cmd_services(args):
 
     print(f"📦 Registered Services ({len(services)})")
     print()
-    for s in services:
+    for s in sorted(services, key=lambda s: s.name.lower()):
         contracts = len(s.contracts)
         print(f"  {s.name} [{s.category or 'uncategorized'}]")
         print(f"    {s.description[:80]}" if s.description else "")
