@@ -212,3 +212,4 @@ shit_test/
 support_repo/*.db
 __pycache__/
 .env
+DEMO.md
