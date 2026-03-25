@@ -285,6 +285,7 @@ def _register_lazy_tools(mcp: FastMCP, registry, mode: str, chain: str = "avalan
                             "service": service_name,
                             "function": function_name,
                             "tx_hash": tx_hash if tx_hash.startswith("0x") else f"0x{tx_hash}",
+                            "explorer": f"https://testnet.snowtrace.io/tx/{tx_hash}" if service_chain == "fuji" else f"https://snowtrace.io/tx/{tx_hash}",
                             "status": "confirmed" if receipt.get("status") == 1 else "reverted",
                             "gas_used": receipt.get("gasUsed"),
                         })

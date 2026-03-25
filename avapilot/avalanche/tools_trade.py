@@ -15,6 +15,12 @@ from avapilot.avalanche._helpers import (
 from avapilot.runtime.config import get_chain_config, AVALANCHE_TOKENS, AVALANCHE_DAPPS
 
 
+def _explorer_url(tx_hash: str, chain: str) -> str:
+    if chain == "fuji":
+        return f"https://testnet.snowtrace.io/tx/{tx_hash}"
+    return f"https://snowtrace.io/tx/{tx_hash}"
+
+
 def register(mcp: FastMCP, chain: str = "avalanche") -> None:
     """Register trade tools on the given MCP server."""
     default_chain = chain
@@ -74,6 +80,7 @@ def register(mcp: FastMCP, chain: str = "avalanche") -> None:
         receipt = wallet.wait_for_receipt(tx_hash, chain=chain)
         return {
             "tx_hash": f"0x{tx_hash}" if not tx_hash.startswith("0x") else tx_hash,
+                "explorer": _explorer_url(tx_hash, default_chain),
             "status": "success" if receipt.get("status") == 1 else "failed",
             "amount_avax": amount_avax,
             "to": to,
@@ -109,6 +116,7 @@ def register(mcp: FastMCP, chain: str = "avalanche") -> None:
         receipt = wallet.wait_for_receipt(tx_hash, chain=chain)
         return {
             "tx_hash": f"0x{tx_hash}" if not tx_hash.startswith("0x") else tx_hash,
+                "explorer": _explorer_url(tx_hash, default_chain),
             "status": "success" if receipt.get("status") == 1 else "failed",
             "amount": amount,
             "token": symbol,
@@ -143,6 +151,7 @@ def register(mcp: FastMCP, chain: str = "avalanche") -> None:
         receipt = wallet.wait_for_receipt(tx_hash, chain=chain)
         return {
             "tx_hash": f"0x{tx_hash}" if not tx_hash.startswith("0x") else tx_hash,
+                "explorer": _explorer_url(tx_hash, default_chain),
             "status": "success" if receipt.get("status") == 1 else "failed",
             "amount_avax": amount_avax,
             "wavax_address": wavax_addr,
@@ -172,6 +181,7 @@ def register(mcp: FastMCP, chain: str = "avalanche") -> None:
         receipt = wallet.wait_for_receipt(tx_hash, chain=chain)
         return {
             "tx_hash": f"0x{tx_hash}" if not tx_hash.startswith("0x") else tx_hash,
+                "explorer": _explorer_url(tx_hash, default_chain),
             "status": "success" if receipt.get("status") == 1 else "failed",
             "amount_wavax": amount_wavax,
         }
@@ -202,6 +212,7 @@ def register(mcp: FastMCP, chain: str = "avalanche") -> None:
         receipt = wallet.wait_for_receipt(tx_hash, chain=chain)
         return {
             "tx_hash": f"0x{tx_hash}" if not tx_hash.startswith("0x") else tx_hash,
+                "explorer": _explorer_url(tx_hash, default_chain),
             "status": "success" if receipt.get("status") == 1 else "failed",
             "token": symbol,
             "spender": spender,
@@ -293,6 +304,7 @@ def register(mcp: FastMCP, chain: str = "avalanche") -> None:
 
         return {
             "tx_hash": f"0x{tx_hash}" if not tx_hash.startswith("0x") else tx_hash,
+                "explorer": _explorer_url(tx_hash, default_chain),
             "status": "success" if receipt.get("status") == 1 else "failed",
             "amount_in": amount_in,
             "token_in": token_in,
